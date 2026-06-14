@@ -195,48 +195,88 @@ class _FaceScreenState extends State<FaceScreen> {
                 ),
               ),
 
-            // Eye-mode chip (tap to toggle too) — part of the hideable chrome.
+            // Speech bubble: shows text received on /speech/say while the
+            // bubble feature is on. Not part of the hideable chrome — it is
+            // content, so it stays visible even after the overlays auto-hide.
+            if (state.bubbleText.isNotEmpty)
+              Align(
+                alignment: const Alignment(0, -0.62),
+                child: _SpeechBubble(text: state.bubbleText),
+              ),
+
+            // Eye-mode chip + speech feature toggles — part of the hideable
+            // chrome.
             if (state.chromeVisible)
               Positioned(
               top: 44,
               left: 0,
               right: 0,
               child: Center(
-                child: GestureDetector(
-                  onTap: () {
-                    state.pokeChrome();
-                    final next = state.eyeMode == EyeMode.random
-                        ? EyeMode.follow
-                        : EyeMode.random;
-                    state.setEyeMode(next);
-                  },
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white10,
-                      borderRadius: BorderRadius.circular(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: () {
+                        state.pokeChrome();
+                        final next = state.eyeMode == EyeMode.random
+                            ? EyeMode.follow
+                            : EyeMode.random;
+                        state.setEyeMode(next);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white10,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              state.eyeMode == EyeMode.random
+                                  ? Icons.shuffle
+                                  : Icons.center_focus_strong,
+                              size: 16,
+                              color: Colors.white70,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              state.eyeMode == EyeMode.random
+                                  ? 'Random'
+                                  : 'Follow',
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                    child: Row(
+                    const SizedBox(height: 8),
+                    Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          state.eyeMode == EyeMode.random
-                              ? Icons.shuffle
-                              : Icons.center_focus_strong,
-                          size: 16,
-                          color: Colors.white70,
+                        _FeatureChip(
+                          icon: Icons.chat_bubble_outline,
+                          label: '吹き出し',
+                          active: state.speechBubbleEnabled,
+                          onTap: () {
+                            state.pokeChrome();
+                            state.toggleSpeechBubble(!state.speechBubbleEnabled);
+                          },
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          state.eyeMode == EyeMode.random
-                              ? 'Random'
-                              : 'Follow',
-                          style: const TextStyle(color: Colors.white70),
+                        const SizedBox(width: 8),
+                        _FeatureChip(
+                          icon: Icons.volume_up_outlined,
+                          label: '発話',
+                          active: state.ttsEnabled,
+                          onTap: () {
+                            state.pokeChrome();
+                            state.toggleTts(!state.ttsEnabled);
+                          },
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
@@ -276,6 +316,120 @@ class _FaceScreenState extends State<FaceScreen> {
       ),
     );
   }
+}
+
+/// A small pill toggle used on the face screen to switch a feature on/off.
+/// When [active] the pill is tinted (cyan); when off it is dimmed.
+class _FeatureChip extends StatelessWidget {
+  const _FeatureChip({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? Colors.cyanAccent : Colors.white38;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: active ? Colors.cyanAccent.withOpacity(0.15) : Colors.white10,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: active ? Colors.cyanAccent.withOpacity(0.6) : Colors.white24,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(color: color, fontSize: 13)),
+            const SizedBox(width: 6),
+            Text(
+              active ? 'ON' : 'OFF',
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A rounded speech bubble with a downward tail, drawn over the face to show
+/// text received on `/speech/say`.
+class _SpeechBubble extends StatelessWidget {
+  const _SpeechBubble({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          constraints: const BoxConstraints(maxWidth: 320),
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black54,
+                blurRadius: 12,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Color(0xFF1A1A2E),
+              fontSize: 18,
+              height: 1.3,
+            ),
+          ),
+        ),
+        // Tail pointing down toward the face.
+        CustomPaint(
+          size: const Size(22, 12),
+          painter: _BubbleTailPainter(),
+        ),
+      ],
+    );
+  }
+}
+
+class _BubbleTailPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = Colors.white;
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width / 2, size.height)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 /// A minimal frame ticker giving delta-time callbacks (avoids depending on the

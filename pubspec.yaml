@@ -44,7 +44,7 @@ dependencies:
 
   # Voice
   speech_to_text: ^7.4.0
-  flutter_tts: ^4.0.0
+  flutter_tts: ^4.2.5
 
   # Sensors
   camera: ^0.12.0+1

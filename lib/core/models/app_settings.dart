@@ -11,18 +11,10 @@ enum CameraFormat { compressed, raw }
 
 /// Persistent application settings.
 ///
-/// Connection endpoints, sensor toggles and the camera format live here and
-/// survive restarts via [SharedPreferences]. The ESP32-side `set_config`
-/// values are NOT mirrored here — those are fetched live via `get_config` and
-/// edited in the settings screen.
-///
-/// "brain" is just a second WebSocket server (e.g. a PC or Raspberry Pi).
-/// The app neither knows nor cares whether it runs ROS — it only sends/receives
-/// JSON whose shape is rosbridge-compatible.
+/// The brain connection endpoint, sensor toggles and the camera format live
+/// here and survive restarts via [SharedPreferences].
 class AppSettings {
   AppSettings({
-    this.esp32Host = '192.168.4.1',
-    this.esp32Port = 9090,
     this.brainHost = '192.168.4.2',
     this.brainPort = 9090,
     this.cameraFormat = CameraFormat.compressed,
@@ -37,15 +29,14 @@ class AppSettings {
     this.wakeWord = 'smabo',
     this.ttsLanguage = 'ja-JP',
     this.sttLocaleId = 'ja_JP',
+    this.ttsEnabled = true,
+    this.speechBubbleEnabled = true,
     this.faceAutoHide = true,
     this.faceAutoHideSeconds = 5,
-    this.servoOrder = const [],
     this.activeExpressionId = 1,
     List<FaceExpression>? expressions,
   }) : expressions = expressions ?? FaceExpression.templates();
 
-  String esp32Host;
-  int esp32Port;
   String brainHost;
   int brainPort;
 
@@ -65,13 +56,15 @@ class AppSettings {
   String ttsLanguage;
   String sttLocaleId;
 
+  /// On the face screen, read aloud (TTS) text received on `/speech/say`.
+  bool ttsEnabled;
+
+  /// On the face screen, show text received on `/speech/say` as a speech bubble.
+  bool speechBubbleEnabled;
+
   /// On the face screen, hide all non-face UI (overlays) after a delay.
   bool faceAutoHide;
   int faceAutoHideSeconds;
-
-  /// App-side display order of servo joints (names). The firmware dict order is
-  /// not reorderable, so the app keeps the preferred order here.
-  List<String> servoOrder;
 
   /// Saved facial expressions (each has a stable [FaceExpression.id]).
   List<FaceExpression> expressions;
@@ -93,12 +86,9 @@ class AppSettings {
         : FaceExpression(id: 1, name: 'Normal', config: FaceConfig());
   }
 
-  String get esp32Url => 'ws://$esp32Host:$esp32Port';
   String get brainUrl => 'ws://$brainHost:$brainPort';
 
   AppSettings copy() => AppSettings(
-        esp32Host: esp32Host,
-        esp32Port: esp32Port,
         brainHost: brainHost,
         brainPort: brainPort,
         cameraFormat: cameraFormat,
@@ -113,9 +103,10 @@ class AppSettings {
         wakeWord: wakeWord,
         ttsLanguage: ttsLanguage,
         sttLocaleId: sttLocaleId,
+        ttsEnabled: ttsEnabled,
+        speechBubbleEnabled: speechBubbleEnabled,
         faceAutoHide: faceAutoHide,
         faceAutoHideSeconds: faceAutoHideSeconds,
-        servoOrder: List<String>.from(servoOrder),
         activeExpressionId: activeExpressionId,
         expressions: [for (final e in expressions) e.copy()],
       );
@@ -129,8 +120,6 @@ class AppSettings {
     bool b(String k, bool d) => p.getBool('$_kPrefix$k') ?? d;
     final fmt = s('cameraFormat', 'compressed');
     return AppSettings(
-      esp32Host: s('esp32Host', '192.168.4.1'),
-      esp32Port: i('esp32Port', 9090),
       brainHost: s('brainHost', '192.168.4.2'),
       brainPort: i('brainPort', 9090),
       cameraFormat:
@@ -146,9 +135,10 @@ class AppSettings {
       wakeWord: s('wakeWord', 'smabo'),
       ttsLanguage: s('ttsLanguage', 'ja-JP'),
       sttLocaleId: s('sttLocaleId', 'ja_JP'),
+      ttsEnabled: b('ttsEnabled', true),
+      speechBubbleEnabled: b('speechBubbleEnabled', true),
       faceAutoHide: b('faceAutoHide', true),
       faceAutoHideSeconds: i('faceAutoHideSeconds', 5),
-      servoOrder: p.getStringList('${_kPrefix}servoOrder') ?? const [],
       activeExpressionId: i('activeExpressionId', 1),
       expressions: _loadExpressions(p),
     );
@@ -180,8 +170,6 @@ class AppSettings {
 
   Future<void> save() async {
     final p = await SharedPreferences.getInstance();
-    await p.setString('${_kPrefix}esp32Host', esp32Host);
-    await p.setInt('${_kPrefix}esp32Port', esp32Port);
     await p.setString('${_kPrefix}brainHost', brainHost);
     await p.setInt('${_kPrefix}brainPort', brainPort);
     await p.setString('${_kPrefix}cameraFormat',
@@ -197,9 +185,10 @@ class AppSettings {
     await p.setString('${_kPrefix}wakeWord', wakeWord);
     await p.setString('${_kPrefix}ttsLanguage', ttsLanguage);
     await p.setString('${_kPrefix}sttLocaleId', sttLocaleId);
+    await p.setBool('${_kPrefix}ttsEnabled', ttsEnabled);
+    await p.setBool('${_kPrefix}speechBubbleEnabled', speechBubbleEnabled);
     await p.setBool('${_kPrefix}faceAutoHide', faceAutoHide);
     await p.setInt('${_kPrefix}faceAutoHideSeconds', faceAutoHideSeconds);
-    await p.setStringList('${_kPrefix}servoOrder', servoOrder);
     await p.setInt('${_kPrefix}activeExpressionId', activeExpressionId);
     await p.setString('${_kPrefix}faceExpressions',
         jsonEncode([for (final e in expressions) e.toJson()]));

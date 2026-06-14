@@ -11,24 +11,18 @@ import 'package:vector_math/vector_math_64.dart' as vm;
 // endpoint, the data interoperates unchanged. Nothing here imports a ROS
 // library — it is plain JSON shaping.
 
-/// Topic names used across both endpoints.
+/// Topic names exchanged with the brain device.
 ///
-/// ESP32 endpoint (robot hardware):
-///   - [cmdVel], [servoCommand] are published to the ESP32.
-///   - [odom], [jointStates] are received from the ESP32.
+/// This app is a sensor + face peripheral: it publishes its phone sensors and
+/// renders the face. All robot driving / arm control lives in smabo-web, not
+/// here.
 ///
-/// Brain device (PC / Raspberry Pi):
 ///   - [lookAt] is received (eye-follow target, geometry_msgs/PoseStamped shape).
 ///   - [speechRecognized] is published (recognized speech, std_msgs/String shape).
 ///   - [speechSay] is received (text to read aloud, std_msgs/String shape).
+///   - [faceExpression] is received (active expression id, std_msgs/Int32 shape).
 ///   - [cameraImage] / [cameraImageRaw], [imu], [gps] are published (sensors).
 class RosTopics {
-  // --- ESP32 ---
-  static const cmdVel = '/cmd_vel';
-  static const servoCommand = '/servo/command';
-  static const odom = '/odom';
-  static const jointStates = '/joint_states';
-
   // --- brain: face / voice ---
   static const lookAt = '/look_at';
   static const speechRecognized = '/speech/recognized';
@@ -47,10 +41,6 @@ class RosTopics {
 
 /// ROS-compatible message type strings (used in the optional `subscribe` op).
 class RosTypes {
-  static const twist = 'geometry_msgs/Twist';
-  static const jointTrajectory = 'trajectory_msgs/JointTrajectory';
-  static const odometry = 'nav_msgs/Odometry';
-  static const jointState = 'sensor_msgs/JointState';
   static const poseStamped = 'geometry_msgs/PoseStamped';
   static const pose = 'geometry_msgs/Pose';
   static const string = 'std_msgs/String';
@@ -75,46 +65,11 @@ Map<String, dynamic> rosHeader(String frameId) {
   return {'stamp': rosTimeNow(), 'frame_id': frameId};
 }
 
-/// Builders and parsers for the ROS message bodies exchanged with the robot.
+/// Builders and parsers for the ROS message bodies exchanged with the brain.
 ///
-/// Every method maps directly onto the JSON shapes documented in
-/// `~/esp32_robot/DESIGN.md` and standard ROS message definitions, so the
+/// Every method maps directly onto standard ROS message definitions, so the
 /// output is interoperable with `rosbridge_suite`.
 class RosMessages {
-  // ---------------------------------------------------------------------- //
-  // geometry_msgs/Twist  → /cmd_vel  (mobile robot controller)
-  // ---------------------------------------------------------------------- //
-  static Map<String, dynamic> twist(double linearX, double angularZ) {
-    return {
-      'linear': {'x': linearX, 'y': 0.0, 'z': 0.0},
-      'angular': {'x': 0.0, 'y': 0.0, 'z': angularZ},
-    };
-  }
-
-  // ---------------------------------------------------------------------- //
-  // trajectory_msgs/JointTrajectory  → /servo/command  (arm controller)
-  // ---------------------------------------------------------------------- //
-  /// Single-point trajectory: move [jointNames] to [positionsRad] (radians),
-  /// reaching the target after [timeFromStart] seconds.
-  static Map<String, dynamic> jointTrajectory(
-    List<String> jointNames,
-    List<double> positionsRad, {
-    double timeFromStart = 0.0,
-  }) {
-    final sec = timeFromStart.floor();
-    final nanosec = ((timeFromStart - sec) * 1e9).round();
-    return {
-      'joint_names': jointNames,
-      'points': [
-        {
-          'positions': positionsRad,
-          'velocities': <double>[],
-          'time_from_start': {'sec': sec, 'nanosec': nanosec},
-        }
-      ],
-    };
-  }
-
   // ---------------------------------------------------------------------- //
   // std_msgs/String  → /speech/recognized  (recognized speech out)
   // ---------------------------------------------------------------------- //
@@ -167,26 +122,6 @@ class RosMessages {
     final gazeX = (-y / fwd).clamp(-1.0, 1.0); // screen right
     final gazeY = (-z / fwd).clamp(-1.0, 1.0); // screen down
     return GazeTarget(gazeX.toDouble(), gazeY.toDouble());
-  }
-
-  // ---------------------------------------------------------------------- //
-  // nav_msgs/Odometry ← /odom
-  // ---------------------------------------------------------------------- //
-  static OdomState? parseOdom(Map<String, dynamic> msg) {
-    final twist = msg['twist'];
-    final pose = msg['pose'];
-    if (twist is! Map || pose is! Map) return null;
-    final t = (twist['twist'] as Map?) ?? const {};
-    final lin = (t['linear'] as Map?) ?? const {};
-    final ang = (t['angular'] as Map?) ?? const {};
-    final p = (pose['pose'] as Map?) ?? const {};
-    final pp = (p['position'] as Map?) ?? const {};
-    return OdomState(
-      x: _toD(pp['x']),
-      y: _toD(pp['y']),
-      linearX: _toD(lin['x']),
-      angularZ: _toD(ang['z']),
-    );
   }
 
   // ---------------------------------------------------------------------- //
@@ -296,20 +231,6 @@ class GazeTarget {
   const GazeTarget(this.x, this.y);
   final double x;
   final double y;
-}
-
-/// Decoded odometry feedback from the ESP32.
-class OdomState {
-  const OdomState({
-    required this.x,
-    required this.y,
-    required this.linearX,
-    required this.angularZ,
-  });
-  final double x;
-  final double y;
-  final double linearX;
-  final double angularZ;
 }
 
 /// Convert roll/pitch/yaw (radians) to a quaternion (ROS xyzw order).

@@ -5,8 +5,7 @@ import '../../core/wire/ws_client.dart';
 import '../../services/speech_service.dart';
 import '../../state/app_state.dart';
 
-/// Slim top overlay: per-endpoint connection dots and a voice indicator.
-/// Visible over every page.
+/// Slim top overlay: brain connection dot and a voice indicator.
 class StatusBar extends StatelessWidget {
   const StatusBar({super.key});
 
@@ -17,8 +16,6 @@ class StatusBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(
         children: [
-          _Dot(label: 'ESP32', status: state.connections.esp32.status),
-          const SizedBox(width: 12),
           _Dot(label: 'Brain', status: state.connections.brain.status),
           const Spacer(),
           _VoiceIndicator(voiceState: state.voiceState),

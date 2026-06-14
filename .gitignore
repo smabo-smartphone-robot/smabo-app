@@ -57,6 +57,12 @@ ios/.generated/
 *.cer
 *.p8
 
+# Xcode / Swift Package Manager — machine-specific build state
+ios/Runner.xcworkspace/xcshareddata/swiftpm/configuration/
+
+# Local package copies (use pub.dev versions instead)
+packages/
+
 # Environment / secrets
 .env
 .env.*

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
@@ -43,7 +44,10 @@ class CameraService {
       cam,
       ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.yuv420,
+      // yuv420 image streaming requires iOS 14+; use bgra8888 on iOS 13.
+      imageFormatGroup: Platform.isIOS
+          ? ImageFormatGroup.bgra8888
+          : ImageFormatGroup.yuv420,
     );
     await controller.initialize();
     _controller = controller;
@@ -97,25 +101,37 @@ class CameraService {
   }
 
   void _publishRaw(CameraImage image) {
-    // Forward the Y (luminance) plane as mono8 — compact and sufficient for
-    // most robotics use; the brain device can request compressed mode for color.
-    final yPlane = image.planes.first;
     final width = image.width;
     final height = image.height;
-    final bytesPerRow = yPlane.bytesPerRow;
+    final Uint8List data;
 
-    Uint8List data;
-    if (bytesPerRow == width) {
-      data = yPlane.bytes;
-    } else {
-      // Strip row padding.
+    if (Platform.isIOS) {
+      // bgra8888: 4 bytes/pixel [B, G, R, A]. Use G channel as luma.
+      final plane = image.planes.first;
+      final src = plane.bytes;
+      final bpr = plane.bytesPerRow;
       data = Uint8List(width * height);
       for (var row = 0; row < height; row++) {
-        final src = row * bytesPerRow;
-        data.setRange(row * width, row * width + width,
-            yPlane.bytes.sublist(src, src + width));
+        for (var col = 0; col < width; col++) {
+          data[row * width + col] = src[row * bpr + col * 4 + 1];
+        }
+      }
+    } else {
+      // yuv420: planes[0] is the Y (luminance) plane.
+      final yPlane = image.planes.first;
+      final bpr = yPlane.bytesPerRow;
+      if (bpr == width) {
+        data = yPlane.bytes;
+      } else {
+        data = Uint8List(width * height);
+        for (var row = 0; row < height; row++) {
+          final src = row * bpr;
+          data.setRange(row * width, row * width + width,
+              yPlane.bytes.sublist(src, src + width));
+        }
       }
     }
+
     _publish(
       RosTopics.cameraImageRaw,
       RosMessages.rawImage(

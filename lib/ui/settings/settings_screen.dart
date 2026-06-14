@@ -4,16 +4,9 @@ import 'package:provider/provider.dart';
 
 import '../../core/models/app_settings.dart';
 import '../../state/app_state.dart';
-import 'esp32_config_editor.dart';
 import 'sensor_preview.dart';
 
-/// Settings: app connection endpoints + sensor/voice options, plus live ESP32
-/// configuration via the rosbridge `get_config` / `set_config` ops.
-///
-/// The ESP32 section mirrors the most commonly tuned values from
-/// `~/esp32_robot` (modes, servo behaviour, drive speed limits). Pin/bus
-/// changes are intentionally omitted here — per DESIGN.md those force a reboot
-/// and risk connectivity loss, so they should be edited over USB.
+/// Settings: brain connection endpoint, sensor/voice options and face UI.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -23,13 +16,10 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late AppSettings _draft;
-  late final TextEditingController _esp32Host;
-  late final TextEditingController _esp32Port;
   late final TextEditingController _brainHost;
   late final TextEditingController _brainPort;
   late final TextEditingController _wakeWord;
 
-  // Selectable language options (BCP-47 for TTS, underscore locale for STT).
   static const _ttsLanguages = [
     'en-US', 'en-GB', 'ja-JP', 'ko-KR', 'zh-CN', 'fr-FR', 'de-DE', 'es-ES',
   ];
@@ -40,31 +30,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    // Settings is the only portrait screen; the rest of the app is landscape.
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
     ]);
     _draft = context.read<AppState>().settings.copy();
-    _esp32Host = TextEditingController(text: _draft.esp32Host);
-    _esp32Port = TextEditingController(text: '${_draft.esp32Port}');
     _brainHost = TextEditingController(text: _draft.brainHost);
     _brainPort = TextEditingController(text: '${_draft.brainPort}');
     _wakeWord = TextEditingController(text: _draft.wakeWord);
-    // Pull the latest ESP32 config so the section reflects the device.
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => context.read<AppState>().requestEsp32Config());
   }
 
   @override
   void dispose() {
-    // Restore landscape for the rest of the app.
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    _esp32Host.dispose();
-    _esp32Port.dispose();
     _brainHost.dispose();
     _brainPort.dispose();
     _wakeWord.dispose();
@@ -73,8 +54,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _saveAppSettings() async {
     _draft
-      ..esp32Host = _esp32Host.text.trim()
-      ..esp32Port = int.tryParse(_esp32Port.text) ?? 9090
       ..brainHost = _brainHost.text.trim()
       ..brainPort = int.tryParse(_brainPort.text) ?? 9090
       ..wakeWord = _wakeWord.text.trim();
@@ -86,9 +65,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// Apply the face auto-hide preference immediately (it is a live toggle, not
-  /// part of the connection "save" button). Only the face fields are written
-  /// onto the current settings so unsaved connection edits are not committed.
   void _applyFaceSettings() {
     final s = context.read<AppState>().settings.copy()
       ..faceAutoHide = _draft.faceAutoHide
@@ -108,8 +84,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
           _toc(),
           _section('Connections'),
-          _hostPort('ESP32 (dc motor, servo motor)', _esp32Host, _esp32Port),
-          _hostPort('brain (eye control, mic, imu, camera img, gps)',
+          _hostPort('brain (eye control, mic, imu, camera, gps)',
               _brainHost, _brainPort),
           ElevatedButton.icon(
             icon: const Icon(Icons.save),
@@ -149,6 +124,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _draft.sttLocaleId,
             (v) => setState(() => _draft.sttLocaleId = v),
           ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Read aloud received text (TTS)'),
+            subtitle: const Text(
+                'Speak text received on /speech/say. Also toggleable from the '
+                'face screen.'),
+            value: _draft.ttsEnabled,
+            onChanged: (v) {
+              setState(() => _draft.ttsEnabled = v);
+              context.read<AppState>().toggleTts(v);
+            },
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Show received text as a speech bubble'),
+            subtitle: const Text(
+                'Display text received on /speech/say over the face. Also '
+                'toggleable from the face screen.'),
+            value: _draft.speechBubbleEnabled,
+            onChanged: (v) {
+              setState(() => _draft.speechBubbleEnabled = v);
+              context.read<AppState>().toggleSpeechBubble(v);
+            },
+          ),
 
           const SizedBox(height: 24),
           _section('Overlay UI'),
@@ -157,8 +158,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             contentPadding: EdgeInsets.zero,
             title: const Text('Auto-hide overlay UI'),
             subtitle: const Text(
-                'Hide the status / sensor / settings buttons after a delay on '
-                'every screen. Tap the screen to show them again.'),
+                'Hide the status / sensor / settings buttons after a delay. '
+                'Tap the screen to show them again.'),
             value: _draft.faceAutoHide,
             onChanged: (v) {
               setState(() => _draft.faceAutoHide = v);
@@ -170,10 +171,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _draft.faceAutoHideSeconds = v;
               _applyFaceSettings();
             }),
-
-          const SizedBox(height: 24),
-          _section('ESP32 configuration'),
-          Esp32ConfigEditor(state: state),
 
           const SizedBox(height: 24),
           _section('Log'),
@@ -192,7 +189,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     'Sensor preview',
     'Voice',
     'Overlay UI',
-    'ESP32 configuration',
     'Log',
   ];
   final Map<String, GlobalKey> _sectionKeys = {
@@ -295,9 +291,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
 
-  /// A language/locale picker. Ensures [current] is always one of the items
-  /// (adding it if a saved value is outside the preset list) so the dropdown
-  /// never asserts.
   Widget _langDropdown(
     String label,
     List<String> options,
@@ -335,7 +328,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final front = _draft.cameraFront;
     void set(bool f) {
       setState(() => _draft.cameraFront = f);
-      state.setCameraFront(f); // apply immediately (restarts camera if live)
+      state.setCameraFront(f);
     }
 
     return Padding(
