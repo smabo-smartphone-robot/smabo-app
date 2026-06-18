@@ -61,21 +61,65 @@ WebSocketで通信。
 
 ---
 
-## 開発環境
+## セットアップ
 
-- Flutter 3.44.1（`~/development/flutter`）
-- Dart SDK `>=3.2.0 <4.0.0`
-- 対象プラットフォーム: Android / iOS
+### 前提条件
+
+| 項目 | バージョン |
+|------|------------|
+| Flutter SDK | 3.44.1（`~/development/flutter`） |
+| Dart SDK | `>=3.2.0 <4.0.0` |
+| 対象プラットフォーム | Android / iOS |
+
+> Homebrew の Flutter は古い場合があります。`~/development/flutter/bin/flutter` を使ってください。
+
+### 1. 環境確認
 
 ```bash
-# バージョン確認
-~/development/flutter/bin/flutter --version
+~/development/flutter/bin/flutter doctor
+```
 
-# 依存関係インストール
+Android・iOS の欄に問題がないことを確認します。
+
+### 2. 依存パッケージのインストール
+
+```bash
 ~/development/flutter/bin/flutter pub get
+```
 
-# 実行（デバイス接続後）
+### 3. デバイスの準備
+
+**Android**
+
+1. 開発者オプションを有効化（設定 → ビルド番号を 7 回タップ）
+2. USB デバッグを ON
+3. USB でPCに接続
+
+**iOS**
+
+1. Xcode をインストール済みであること
+2. iPhone の「開発者モード」を ON（設定 → プライバシーとセキュリティ）
+3. `open ios/Runner.xcworkspace` → Signing & Capabilities で Bundle ID・チームを設定
+4. USB でPCに接続
+
+### 4. 実行
+
+```bash
+# 接続済みデバイスの確認
+~/development/flutter/bin/flutter devices
+
+# 実行（デバイスが1台の場合はそのまま、複数台は -d <device-id>）
 ~/development/flutter/bin/flutter run
+```
+
+### 5. リリースビルド
+
+```bash
+# Android APK
+~/development/flutter/bin/flutter build apk --release
+
+# iOS（Xcode でのアーカイブ・署名が別途必要）
+~/development/flutter/bin/flutter build ios --release
 ```
 
 ---
