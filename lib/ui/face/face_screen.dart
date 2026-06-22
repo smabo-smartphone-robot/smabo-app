@@ -257,7 +257,7 @@ class _FaceScreenState extends State<FaceScreen> {
                       children: [
                         _FeatureChip(
                           icon: Icons.chat_bubble_outline,
-                          label: '吹き出し',
+                          label: 'Bubble',
                           active: state.speechBubbleEnabled,
                           onTap: () {
                             state.pokeChrome();
@@ -267,7 +267,7 @@ class _FaceScreenState extends State<FaceScreen> {
                         const SizedBox(width: 8),
                         _FeatureChip(
                           icon: Icons.volume_up_outlined,
-                          label: '発話',
+                          label: 'Speak',
                           active: state.ttsEnabled,
                           onTap: () {
                             state.pokeChrome();
