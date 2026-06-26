@@ -4,8 +4,11 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- Voice (wake word + speech recognition) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
-    <!-- Camera (sensor publishing) -->
+    <!-- Camera (WebRTC streaming) -->
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- WebRTC: network state changes and audio routing -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <!-- GPS -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>

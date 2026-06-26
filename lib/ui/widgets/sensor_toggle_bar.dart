@@ -28,8 +28,8 @@ class SensorToggleBar extends StatelessWidget {
           _SensorChip(
             icon: Icons.videocam,
             label: 'Camera',
-            on: state.camera.isStreaming,
-            onTap: () => state.toggleCamera(!state.camera.isStreaming),
+            on: state.webrtc.isActive,
+            onTap: () => state.toggleCamera(!state.webrtc.isActive),
           ),
           const SizedBox(width: 8),
           _SensorChip(

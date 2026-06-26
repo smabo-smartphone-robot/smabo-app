@@ -11,8 +11,8 @@ import '../core/models/face_config.dart';
 import '../core/models/face_expression.dart';
 import '../core/wire/ros_compat.dart';
 import '../core/wire/ws_client.dart';
-import '../services/camera_service.dart';
 import '../services/sensor_service.dart';
+import '../services/webrtc_service.dart';
 import '../services/speech_service.dart';
 import '../services/tts_service.dart';
 
@@ -24,14 +24,14 @@ class AppState extends ChangeNotifier {
   AppState() {
     connections = ConnectionManager();
     sensors = SensorService(_publishToBrain);
-    camera = CameraService(_publishToBrain);
+    webrtc = WebRtcService(_publishToBrain);
     speech = SpeechService();
     tts = TtsService();
   }
 
   late final ConnectionManager connections;
   late final SensorService sensors;
-  late final CameraService camera;
+  late final WebRtcService webrtc;
   late final SpeechService speech;
   late final TtsService tts;
 
@@ -66,6 +66,10 @@ class AppState extends ChangeNotifier {
   String _bubbleText = '';
   String get bubbleText => _bubbleText;
   Timer? _bubbleTimer;
+
+  /// Last text spoken/shown from `/speech/say`, used to drop consecutive
+  /// duplicates when [AppSettings.ignoreRepeatedSpeech] is on.
+  String _lastSpokenText = '';
 
   /// Face appearance and the decoded images per element (null until loaded).
   /// While an expression is being edited in the settings screen, [_previewConfig]
@@ -176,6 +180,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> toggleIgnoreRepeatedSpeech(bool on) async {
+    settings.ignoreRepeatedSpeech = on;
+    await settings.save();
+    notifyListeners();
+  }
+
   void _showBubble(String text) {
     _bubbleText = text.trim();
     _bubbleTimer?.cancel();
@@ -201,7 +211,9 @@ class AppState extends ChangeNotifier {
   void _applyDefaultSensors() {
     if (settings.imuEnabled) sensors.startImu(rateHz: settings.imuRateHz);
     if (settings.gpsEnabled) sensors.startGps();
-    if (settings.cameraEnabled) camera.start(settings);
+    if (settings.cameraEnabled) {
+      webrtc.start(settings);
+    }
   }
 
   // --------------------------------------------------------------- routing
@@ -225,6 +237,12 @@ class AppState extends ChangeNotifier {
       case RosTopics.speechSay:
         final text = RosMessages.parseString(m.msg);
         if (text != null && text.trim().isNotEmpty) {
+          // Drop a string identical to the previous one when enabled (e.g. a
+          // vision source repeating the same AR/QR text every frame).
+          if (settings.ignoreRepeatedSpeech && text == _lastSpokenText) {
+            break;
+          }
+          _lastSpokenText = text;
           if (settings.ttsEnabled) tts.speak(text);
           if (settings.speechBubbleEnabled) _showBubble(text);
         }
@@ -238,6 +256,9 @@ class AppState extends ChangeNotifier {
             _addLog('⚠️ Unknown expression id: $id (ignored)');
           }
         }
+        break;
+      case '/webrtc/answer':
+        webrtc.handleAnswer(m.msg);
         break;
       default:
         break;
@@ -512,19 +533,18 @@ class AppState extends ChangeNotifier {
     if (settings.cameraFront == front) return;
     settings.cameraFront = front;
     await settings.save();
-    final wasStreaming = camera.isStreaming;
-    await camera.dispose();
-    if (wasStreaming) await camera.start(settings);
+    final wasActive = webrtc.isActive;
+    await webrtc.stop();
+    if (wasActive) await webrtc.start(settings);
     notifyListeners();
   }
 
   Future<void> toggleCamera(bool on) async {
     if (on) {
-      final ok = await camera.start(settings);
-      settings.cameraEnabled = ok;
-      if (!ok) _addLog('⚠️ Could not start the camera');
+      await webrtc.start(settings);
+      settings.cameraEnabled = true;
     } else {
-      await camera.stop();
+      await webrtc.stop();
       settings.cameraEnabled = false;
     }
     settings.save();
@@ -554,6 +574,9 @@ class AppState extends ChangeNotifier {
         _addLog('🔌 $msg');
         if (!_connEventController.isClosed) _connEventController.add(msg);
         connections.brain.subscribe(RosTopics.faceExpression, RosTypes.int32);
+        // Brain restarted/(re)connected: re-send the WebRTC offer so the brain
+        // re-establishes the camera peer while the camera is already running.
+        if (webrtc.isActive) webrtc.recreateOffer();
       } else if (_prevBrainStatus == WsStatus.connected &&
           (s == WsStatus.error || s == WsStatus.disconnected)) {
         const msg = 'Brain disconnected';
@@ -581,7 +604,7 @@ class AppState extends ChangeNotifier {
     }
     speech.dispose();
     sensors.dispose();
-    camera.dispose();
+    webrtc.dispose();
     connections.dispose();
     _connEventController.close();
     super.dispose();

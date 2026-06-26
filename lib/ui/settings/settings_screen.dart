@@ -95,10 +95,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
           _section('Camera'),
           _lensSelector(state),
-          _cameraFormat(),
-          _intField('FPS', _draft.cameraFps, (v) => _draft.cameraFps = v),
-          _intField('JPEG quality (1-100)', _draft.cameraJpegQuality,
-              (v) => _draft.cameraJpegQuality = v),
 
           const SizedBox(height: 24),
           _section('IMU'),
@@ -148,6 +144,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onChanged: (v) {
               setState(() => _draft.speechBubbleEnabled = v);
               context.read<AppState>().toggleSpeechBubble(v);
+            },
+          ),
+          SwitchListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Ignore repeated text'),
+            subtitle: const Text(
+                'Skip a /speech/say message identical to the previous one '
+                '(e.g. vision repeating the same AR/QR text every frame).'),
+            value: _draft.ignoreRepeatedSpeech,
+            onChanged: (v) {
+              setState(() => _draft.ignoreRepeatedSpeech = v);
+              context.read<AppState>().toggleIgnoreRepeatedSpeech(v);
             },
           ),
 
@@ -365,28 +374,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (v != null) onChanged(v);
         },
       ),
-    );
-  }
-
-  Widget _cameraFormat() {
-    return Row(
-      children: [
-        const Text('Format: ', style: TextStyle(color: Colors.white54)),
-        const SizedBox(width: 8),
-        DropdownButton<CameraFormat>(
-          value: _draft.cameraFormat,
-          dropdownColor: const Color(0xFF111111),
-          items: const [
-            DropdownMenuItem(
-                value: CameraFormat.compressed,
-                child: Text('CompressedImage (JPEG)')),
-            DropdownMenuItem(
-                value: CameraFormat.raw, child: Text('Image (raw mono8)')),
-          ],
-          onChanged: (v) =>
-              setState(() => _draft.cameraFormat = v ?? CameraFormat.compressed),
-        ),
-      ],
     );
   }
 

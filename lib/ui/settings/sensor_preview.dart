@@ -1,12 +1,10 @@
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 
 import '../../services/sensor_service.dart';
 import '../../state/app_state.dart';
 
-/// Live preview of the phone sensors (camera image, IMU, GPS) in settings.
-/// Each can be toggled on here; values update live via the service streams.
+/// Live preview of the phone sensors (camera, IMU, GPS) in settings.
 class SensorPreview extends StatelessWidget {
   const SensorPreview({super.key, required this.state});
   final AppState state;
@@ -17,10 +15,10 @@ class SensorPreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _tile(
-          'Camera',
-          state.camera.isStreaming,
+          'Camera (WebRTC)',
+          state.webrtc.isActive,
           (v) => state.toggleCamera(v),
-          _cameraPreview(context),
+          _cameraPreview(),
         ),
         _tile(
           'IMU',
@@ -59,27 +57,8 @@ class SensorPreview extends StatelessWidget {
   }
 
   // ----------------------------------------------------------- camera
-  Widget _cameraPreview(BuildContext context) {
-    final c = state.camera.controller;
-    if (c == null || !c.value.isInitialized) {
-      return const _Hint('Starting camera…');
-    }
-    // controller.aspectRatio is the sensor ratio in landscape; invert it when
-    // the screen is portrait so the preview is not stretched.
-    final sensor = c.value.aspectRatio;
-    final portrait =
-        MediaQuery.of(context).orientation == Orientation.portrait;
-    final ratio = portrait ? 1 / sensor : sensor;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 240),
-        child: AspectRatio(
-          aspectRatio: ratio,
-          child: CameraPreview(c),
-        ),
-      ),
-    );
+  Widget _cameraPreview() {
+    return const _Hint('映像はブラウザ（smabo-web）で確認してください');
   }
 
   // -------------------------------------------------------------- IMU

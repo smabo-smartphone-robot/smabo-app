@@ -21,7 +21,8 @@ import 'package:vector_math/vector_math_64.dart' as vm;
 ///   - [speechRecognized] is published (recognized speech, std_msgs/String shape).
 ///   - [speechSay] is received (text to read aloud, std_msgs/String shape).
 ///   - [faceExpression] is received (active expression id, std_msgs/Int32 shape).
-///   - [cameraImage] / [cameraImageRaw], [imu], [gps] are published (sensors).
+///   - [imu] / [gps] are published (sensors). The camera is streamed over
+///     WebRTC (see services/webrtc_service.dart), not as a ROS topic here.
 class RosTopics {
   // --- brain: face / voice ---
   static const lookAt = '/look_at';
@@ -33,8 +34,6 @@ class RosTopics {
   static const faceExpression = '/expression';
 
   // --- brain: sensors ---
-  static const cameraImage = '/camera/image/compressed';
-  static const cameraImageRaw = '/camera/image_raw';
   static const imu = '/imu/data';
   static const gps = '/gps/fix';
 }
@@ -45,8 +44,6 @@ class RosTypes {
   static const pose = 'geometry_msgs/Pose';
   static const string = 'std_msgs/String';
   static const int32 = 'std_msgs/Int32';
-  static const compressedImage = 'sensor_msgs/CompressedImage';
-  static const image = 'sensor_msgs/Image';
   static const imu = 'sensor_msgs/Imu';
   static const navSatFix = 'sensor_msgs/NavSatFix';
 }
@@ -183,38 +180,6 @@ class RosMessages {
       ],
       // COVARIANCE_TYPE_APPROXIMATED = 1
       'position_covariance_type': 1,
-    };
-  }
-
-  // ---------------------------------------------------------------------- //
-  // sensor_msgs/CompressedImage  → /camera/image/compressed
-  // ---------------------------------------------------------------------- //
-  static Map<String, dynamic> compressedImage(String base64Jpeg) {
-    return {
-      'header': rosHeader('camera'),
-      'format': 'jpeg',
-      'data': base64Jpeg,
-    };
-  }
-
-  // ---------------------------------------------------------------------- //
-  // sensor_msgs/Image  → /camera/image_raw
-  // ---------------------------------------------------------------------- //
-  static Map<String, dynamic> rawImage({
-    required int width,
-    required int height,
-    required String encoding,
-    required String base64Data,
-  }) {
-    final channels = encoding == 'mono8' ? 1 : 3;
-    return {
-      'header': rosHeader('camera'),
-      'height': height,
-      'width': width,
-      'encoding': encoding,
-      'is_bigendian': 0,
-      'step': width * channels,
-      'data': base64Data,
     };
   }
 
