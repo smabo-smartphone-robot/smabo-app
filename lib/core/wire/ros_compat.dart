@@ -18,7 +18,8 @@ import 'package:vector_math/vector_math_64.dart' as vm;
 /// here.
 ///
 ///   - [lookAt] is received (eye-follow target, geometry_msgs/PoseStamped shape).
-///   - [speechRecognized] is published (recognized speech, std_msgs/String shape).
+///   - [speechAudio] is published (recorded utterance for smabo-brain to
+///     transcribe; the text comes back on [speechRecognized], shown in smabo-web).
 ///   - [speechSay] is received (text to read aloud, std_msgs/String shape).
 ///   - [faceExpression] is received (active expression id, std_msgs/Int32 shape).
 ///   - [imu] / [gps] are published (sensors). The camera is streamed over
@@ -28,6 +29,11 @@ class RosTopics {
   static const lookAt = '/look_at';
   static const speechRecognized = '/speech/recognized';
   static const speechSay = '/speech/say';
+
+  /// Recorded utterance sent to smabo-brain (audio_common_msgs/AudioData:
+  /// `{data: <base64 WAV>}`), which runs STT and publishes the text on
+  /// [speechRecognized].
+  static const speechAudio = '/speech/audio';
 
   /// Active facial-expression id, received from the brain device
   /// (std_msgs/Int32 shape: `{data: <id>}`).
@@ -68,10 +74,8 @@ Map<String, dynamic> rosHeader(String frameId) {
 /// output is interoperable with `rosbridge_suite`.
 class RosMessages {
   // ---------------------------------------------------------------------- //
-  // std_msgs/String  → /speech/recognized  (recognized speech out)
+  // std_msgs/String  ← /speech/say  (text to read aloud, in)
   // ---------------------------------------------------------------------- //
-  static Map<String, dynamic> string(String data) => {'data': data};
-
   /// Extract the text from a std_msgs/String (`/speech/say`).
   static String? parseString(Map<String, dynamic> msg) {
     final d = msg['data'];

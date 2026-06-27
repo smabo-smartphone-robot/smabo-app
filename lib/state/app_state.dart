@@ -118,7 +118,7 @@ class AppState extends ChangeNotifier {
       _lastPartial = p;
       notifyListeners();
     }));
-    _subs.add(speech.onCommand.listen(_onSpeechCommand));
+    _subs.add(speech.onAudio.listen(_onSpeechAudio));
     _subs.add(speech.debug.listen((m) => _addLog('🗣 $m')));
     _subs.add(speech.onWake.listen((_) {
       _wakeCount++;
@@ -160,6 +160,44 @@ class AppState extends ChangeNotifier {
     } else {
       await speech.stop();
     }
+    notifyListeners();
+  }
+
+  /// Persist a changed wake word immediately (no reconnect needed) and apply it
+  /// to the running recogniser, so it survives leaving the settings screen.
+  Future<void> setWakeWord(String word) async {
+    final w = word.trim();
+    if (w.isEmpty || w == settings.wakeWord) return;
+    settings.wakeWord = w;
+    await settings.save();
+    speech.updateConfig(wakeWord: w);
+    notifyListeners();
+  }
+
+  /// Persist + apply the IMU publish rate (restarts the stream when running).
+  Future<void> setImuRate(int hz) async {
+    if (hz <= 0 || hz == settings.imuRateHz) return;
+    settings.imuRateHz = hz;
+    await settings.save();
+    if (sensors.imuOn) sensors.startImu(rateHz: hz);
+    notifyListeners();
+  }
+
+  /// Persist + apply the TTS language immediately.
+  Future<void> setTtsLanguage(String lang) async {
+    if (lang.isEmpty || lang == settings.ttsLanguage) return;
+    settings.ttsLanguage = lang;
+    await settings.save();
+    await tts.setLanguage(lang);
+    notifyListeners();
+  }
+
+  /// Persist + apply the speech-recognition locale immediately.
+  Future<void> setSttLocale(String locale) async {
+    if (locale.isEmpty || locale == settings.sttLocaleId) return;
+    settings.sttLocaleId = locale;
+    await settings.save();
+    speech.updateConfig(localeId: locale);
     notifyListeners();
   }
 
@@ -265,10 +303,15 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void _onSpeechCommand(String command) {
-    _addLog('🎤 Recognized: $command');
-    _publishToBrain(RosTopics.speechRecognized, RosMessages.string(command));
-    notifyListeners();
+  /// A recorded utterance (base64 WAV) is ready — send it to smabo-brain, which
+  /// runs the STT and publishes the text on `/speech/recognized`.
+  ///
+  /// Shape is audio_common_msgs/AudioData ({ data: uint8[] }); over rosbridge a
+  /// uint8[] is a base64 string. The WAV header is self-describing (format /
+  /// sample rate / channels), so no extra fields are needed.
+  void _onSpeechAudio(String base64Wav) {
+    _addLog('🎤 Sending recorded audio to brain (${base64Wav.length} B)');
+    _publishToBrain(RosTopics.speechAudio, {'data': base64Wav});
   }
 
   /// Manually start command capture (skips the wake word) — wired to a tap on

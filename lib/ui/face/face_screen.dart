@@ -45,7 +45,7 @@ class _FaceScreenState extends State<FaceScreen> {
   // fixed time (the eye size never changes). _reactUntil is an elapsed deadline.
   int _lastWakeCount = 0;
   double _reactUntil = 0;
-  static const double _reactHold = 2.0; // seconds the colour stays lit
+  static const double _reactHold = 3.0; // seconds the colour stays lit after wake
 
   @override
   void initState() {
@@ -281,33 +281,22 @@ class _FaceScreenState extends State<FaceScreen> {
               ),
             ),
 
-            // Voice feedback. During wake-listening we also show what the STT
-            // currently hears, so a non-matching transcription is visible.
+            // Voice feedback: prompt the wake word, or show that we're recording
+            // the utterance (the STT itself runs on smabo-brain).
             if (listening && state.chromeVisible)
               Positioned(
                 bottom: 84,
                 left: 0,
                 right: 0,
                 child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        state.voiceState == VoiceState.recognizing
-                            ? '🎤 ${state.lastPartial}'
-                            : 'Say "${state.settings.wakeWord}"',
-                        style: const TextStyle(
-                            color: Colors.cyanAccent, fontSize: 16),
-                      ),
-                      if (state.voiceState == VoiceState.listeningForWake)
-                        Text(
-                          state.lastPartial.isEmpty
-                              ? '(tap the screen to talk)'
-                              : 'Heard: ${state.lastPartial}',
-                          style: const TextStyle(
-                              color: Colors.white38, fontSize: 12),
-                        ),
-                    ],
+                  child: Text(
+                    state.voiceState == VoiceState.recognizing
+                        ? (state.lastPartial.isEmpty
+                            ? '🎤 録音中…'
+                            : state.lastPartial)
+                        : 'Say "${state.settings.wakeWord}"',
+                    style: const TextStyle(
+                        color: Colors.cyanAccent, fontSize: 16),
                   ),
                 ),
               ),

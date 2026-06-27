@@ -16,6 +16,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late AppSettings _draft;
+  late final AppState _appState;
   late final TextEditingController _brainHost;
   late final TextEditingController _brainPort;
   late final TextEditingController _wakeWord;
@@ -34,7 +35,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
     ]);
-    _draft = context.read<AppState>().settings.copy();
+    _appState = context.read<AppState>();
+    _draft = _appState.settings.copy();
     _brainHost = TextEditingController(text: _draft.brainHost);
     _brainPort = TextEditingController(text: '${_draft.brainPort}');
     _wakeWord = TextEditingController(text: _draft.wakeWord);
@@ -46,6 +48,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    // Persist pending edits that don't need a reconnect when leaving the screen,
+    // so they stick even without pressing "Save & reconnect". (TTS language /
+    // recognition locale already apply live on selection; this is the backstop
+    // for the wake word and the IMU rate number field.)
+    _appState.setWakeWord(_wakeWord.text.trim());
+    _appState.setImuRate(_draft.imuRateHz);
     _brainHost.dispose();
     _brainPort.dispose();
     _wakeWord.dispose();
@@ -112,13 +120,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'Speech (TTS) language',
             _ttsLanguages,
             _draft.ttsLanguage,
-            (v) => setState(() => _draft.ttsLanguage = v),
+            (v) {
+              setState(() => _draft.ttsLanguage = v);
+              context.read<AppState>().setTtsLanguage(v);
+            },
           ),
           _langDropdown(
             'Recognition locale',
             _sttLocales,
             _draft.sttLocaleId,
-            (v) => setState(() => _draft.sttLocaleId = v),
+            (v) {
+              setState(() => _draft.sttLocaleId = v);
+              context.read<AppState>().setSttLocale(v);
+            },
           ),
           SwitchListTile(
             dense: true,
