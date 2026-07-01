@@ -8,7 +8,7 @@ import 'face_expression.dart';
 /// Persistent application settings.
 class AppSettings {
   AppSettings({
-    this.brainHost = '192.168.4.2',
+    this.brainHost = 'smabo-brain.local',
     this.brainPort = 9090,
     this.cameraFront = true,
     this.imuRateHz = 20,
@@ -110,7 +110,7 @@ class AppSettings {
     int i(String k, int d) => p.getInt('$_kPrefix$k') ?? d;
     bool b(String k, bool d) => p.getBool('$_kPrefix$k') ?? d;
     return AppSettings(
-      brainHost: s('brainHost', '192.168.4.2'),
+      brainHost: s('brainHost', 'smabo-brain.local'),
       brainPort: i('brainPort', 9090),
       cameraFront: b('cameraFront', true),
       imuRateHz: i('imuRateHz', 20),
