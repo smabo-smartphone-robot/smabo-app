@@ -2,7 +2,8 @@
 
 ESP32ロボット用スマートフォンアプリ（Flutter製）。
 
-スマートフォンがロボットの「顔」になりつつ、走行コントローラ・アームコントローラ・センサパブリッシャ・音声インタフェースを兼ねます。
+スマートフォンがロボットの「顔」になりつつ、センサ（IMU・GPS・カメラ）の送信と音声インタフェースを担います。
+接続先は smabo-brain（または smabo-brain-ros）のみです。走行・サーボの操作や ESP32 の設定は smabo-web で行います。
 
 ---
 
@@ -10,12 +11,11 @@ ESP32ロボット用スマートフォンアプリ（Flutter製）。
 
 | 機能 | 説明 |
 |------|------|
-| **顔表示** | カスタマイズ可能な2Dアニメーション顔（表情・色・形・まぶた・回転） |
-| **走行コントロール** | 仮想ジョイスティックで`/cmd_vel`送信 |
-| **アームコントロール** | サーボ角度指令`/servo/command`送信 |
-| **センサ送信** | IMU・GPS・カメラ映像をbrainデバイスへ送信 |
-| **音声インタフェース** | ウェイクワード「smabo」でSTT起動、TTSでロボットが発話 |
-| **表情切替** | `/expression`トピック（Int32）でリモート切替可能 |
+| **顔表示** | カスタマイズ可能な2Dアニメーション顔（表情・色・形・まぶた・回転）。`/expression`（Int32）で表情、`/look_at`（PoseStamped）で視線を切替 |
+| **センサ送信** | IMU（`/imu/data`）・GPS（`/gps/fix`）を brain へ送信 |
+| **カメラ映像** | WebRTC で brain へ映像を送信（シグナリングは `/webrtc/offer`・`/webrtc/app_ice`・`/webrtc/answer`） |
+| **音声入力** | ウェイクワード「smabo」（または画面タップ）で発話を録音し、WAV を `/speech/audio` で brain へ送信。音声認識（STT）は brain 側で実行 |
+| **発話** | `/speech/say`（String）を受信して TTS で読み上げ、吹き出しを表示 |
 
 ---
 
@@ -25,14 +25,23 @@ ESP32ロボット用スマートフォンアプリ（Flutter製）。
 スマートフォン (smabo-app)
 │
 ├── UI層
-│   ├── 顔ページ      — 表情アニメーション、カスタマイズ設定
-│   ├── 走行ページ    — 仮想ジョイスティック
-│   └── アームページ  — サーボ操作UI
+│   ├── 顔画面        — 表情アニメーション（全画面）
+│   ├── ステータスバー — brain 接続状態・音声状態
+│   ├── センサ切替    — Voice / Camera / IMU / GPS の ON/OFF
+│   ├── 顔の設定      — 目の形・色・表情の編集
+│   └── 設定画面      — 接続先・カメラ・IMU・音声・表示
 │
 ├── State層
 │   └── AppState (Provider)
 │
+├── Services
+│   ├── sensor_service.dart  — IMU / GPS
+│   ├── webrtc_service.dart  — カメラ映像（WebRTC）
+│   ├── speech_service.dart  — ウェイクワード検出・録音
+│   └── tts_service.dart     — 読み上げ
+│
 └── Core層
+    ├── connection/connection_manager.dart — brain への接続
     ├── wire/ws_client.dart     — ROS非依存WebSocketクライアント
     ├── wire/ros_compat.dart    — rosbridgeフォーマット互換レイヤ（ここだけ）
     └── models/                 — FaceConfig, FaceExpression など
@@ -40,24 +49,21 @@ ESP32ロボット用スマートフォンアプリ（Flutter製）。
 
 ### 通信プロトコル
 
-WebSocketで通信。
+WebSocket（rosbridge v2.0 互換 JSON）で brain に接続します。
 
 **接続先（設定画面で変更可）:**
 
 | エンドポイント | デフォルト | 用途 |
 |---------------|-----------|------|
-| ESP32 | `ws://<ip>:9090` | 走行・サーボ・設定同期 |
-| brainデバイス | `ws://<ip>:9090` | 顔追従・音声・カメラ |
+| brain | `ws://smabo-brain.local:9090` | 顔・音声・センサ・カメラのシグナリング |
 
-**ESP32が処理するトピック:**
+送信するトピックには送信元 prefix `/app` が付きます（brain が剥がして再配信）。
 
-- パブリッシュ: `/cmd_vel`, `/servo/command`, `set_mode`, `set_config`, `get_config`
-- サブスクライブ: `/odom`, `/joint_states`
+- 送信: `/imu/data`, `/gps/fix`, `/speech/audio`, `/webrtc/offer`, `/webrtc/app_ice`
+- 受信: `/look_at`, `/expression`, `/speech/say`, `/webrtc/answer`
+- `subscribe` op は `/look_at`・`/expression` について送信します
 
-**brainデバイスが処理するトピック:**
-
-- パブリッシュ: `/speech/recognized`, `/imu/data`, `/gps/fix`, カメラ映像
-- サブスクライブ: `/look_at`, `/speech/say`, `/expression`
+カメラ映像は WebSocket ではなく WebRTC で brain に送ります。
 
 ---
 
@@ -131,9 +137,10 @@ Android・iOS の欄に問題がないことを確認します。
 | `provider` | 状態管理 |
 | `web_socket_channel` | WebSocket通信 |
 | `shared_preferences` | 設定の永続化 |
-| `speech_to_text` | 音声認識（STT） |
+| `speech_to_text` | ウェイクワード検出 |
 | `flutter_tts` | テキスト読み上げ（TTS） |
-| `camera` | カメラ映像取得 |
+| `flutter_webrtc` | カメラ映像の送信（WebRTC） |
+| `record` | 発話の録音 |
 | `sensors_plus` | IMUセンサ |
 | `geolocator` | GPS |
 | `permission_handler` | カメラ・マイク・位置情報パーミッション |
