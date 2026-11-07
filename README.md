@@ -61,7 +61,7 @@ WebSocket（rosbridge v2.0 互換 JSON）で brain に接続します。
 
 - 送信: `/imu/data`, `/gps/fix`, `/speech/audio`, `/webrtc/offer`, `/webrtc/app_ice`
 - 受信: `/look_at`, `/expression`, `/speech/say`, `/webrtc/answer`
-- `subscribe` op は `/look_at`・`/expression` について送信します
+- 接続のたびに、送信トピックを `advertise`、受信トピックを `subscribe` します（smabo-brain / smabo-brain-ros のどちらでも同じ。表は `lib/core/wire/ros_compat.dart` の `RosProtocol`）
 
 カメラ映像は WebSocket ではなく WebRTC で brain に送ります。
 
