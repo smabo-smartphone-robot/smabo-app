@@ -164,8 +164,12 @@ class WsClient {
   /// Send a raw op frame (set_mode, set_config, get_config, subscribe…).
   void sendOp(Map<String, dynamic> frame) => _send(frame);
 
-  /// Announce interest in a topic (rosbridge `subscribe`); harmless if the peer
-  /// ignores it.
+  /// Announce a topic this client publishes (rosbridge `advertise`).
+  void advertise(String topic, String type) {
+    _send({'op': 'advertise', 'topic': topic, 'type': type});
+  }
+
+  /// Ask to receive a topic (rosbridge `subscribe`).
   void subscribe(String topic, String type) {
     _send({'op': 'subscribe', 'topic': topic, 'type': type});
   }

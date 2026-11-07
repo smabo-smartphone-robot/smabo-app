@@ -16,6 +16,8 @@ import '../services/webrtc_service.dart';
 import '../services/speech_service.dart';
 import '../services/tts_service.dart';
 
+part 'app_state_expressions.dart';
+
 /// Central application state: wires the brain connection, services and UI.
 ///
 /// Routing summary:
@@ -255,12 +257,19 @@ class AppState extends ChangeNotifier {
   }
 
   // --------------------------------------------------------------- routing
-  /// Source prefix prepended to every app→brain publish. The brain strips it
-  /// before re-broadcasting so subscribers see canonical ROS topic names.
-  static const _brainTopicPrefix = '/app';
-
+  /// Publish with the `/app` source prefix; the brain strips it and delivers
+  /// the canonical topic name.
   void _publishToBrain(String topic, Map<String, dynamic> msg) {
-    connections.brain.publish('$_brainTopicPrefix$topic', msg);
+    connections.brain.publish('${RosProtocol.sourcePrefix}$topic', msg);
+  }
+
+  /// On every (re)connect: advertise what we publish, subscribe to what we read
+  /// (the same handshake for smabo-brain and smabo-brain-ros).
+  void _brainHandshake() {
+    final brain = connections.brain;
+    RosProtocol.publish.forEach(
+        (topic, type) => brain.advertise('${RosProtocol.sourcePrefix}$topic', type));
+    RosProtocol.subscribe.forEach(brain.subscribe);
   }
 
   void _onBrainMessage(WireMessage m) {
@@ -321,188 +330,8 @@ class AppState extends ChangeNotifier {
     speech.triggerRecognition();
   }
 
-  // ------------------------------------------------------- expressions
-  Future<void> setActiveExpression(int id) async {
-    final resolved = settings.expressionById(id).id;
-    if (settings.activeExpressionId == resolved && _previewConfig == null) {
-      return;
-    }
-    settings.activeExpressionId = resolved;
-    await settings.save();
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  Future<void> beginEditExpression(int id) async {
-    _editingExpressionId = id;
-    _previewConfig = settings.expressionById(id).config.copy();
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  Future<void> endEditExpression() async {
-    _editingExpressionId = null;
-    _previewConfig = null;
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  void previewFaceConfig(FaceConfig cfg) {
-    _previewConfig = cfg.clamped();
-    notifyListeners();
-  }
-
-  Future<void> commitEditExpression(FaceConfig cfg) async {
-    final clamped = cfg.clamped();
-    _previewConfig = clamped;
-    final id = _editingExpressionId;
-    if (id != null) {
-      settings.expressionById(id).config = clamped.copy();
-      await settings.save();
-    }
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  Future<int> addExpression() async {
-    final id = _nextExpressionId();
-    settings.expressions.add(FaceExpression(
-      id: id,
-      name: 'Expression $id',
-      config: FaceConfig(),
-    ));
-    await settings.save();
-    await beginEditExpression(id);
-    return id;
-  }
-
-  Future<int> duplicateExpression(int id) async {
-    final src = settings.expressionById(id);
-    final newId = _nextExpressionId();
-    settings.expressions.add(FaceExpression(
-      id: newId,
-      name: '${src.name} (copy)',
-      config: src.config.copy(),
-    ));
-    await settings.save();
-    await beginEditExpression(newId);
-    return newId;
-  }
-
-  Future<void> deleteExpression(int id) async {
-    if (settings.expressions.length <= 1) return;
-    settings.expressions.removeWhere((e) => e.id == id);
-    if (!settings.expressions.any((e) => e.id == settings.activeExpressionId)) {
-      settings.activeExpressionId = settings.expressions.first.id;
-    }
-    if (_editingExpressionId == id) {
-      _editingExpressionId = null;
-      _previewConfig = null;
-    }
-    await settings.save();
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  Future<String?> changeExpressionId(int oldId, int newId) async {
-    if (newId == oldId) return null;
-    if (newId < 1) return 'ID must be a positive integer';
-    if (settings.expressions.any((e) => e.id == newId)) {
-      return 'ID $newId is already used';
-    }
-    final idx = settings.expressions.indexWhere((e) => e.id == oldId);
-    if (idx < 0) return 'Expression not found';
-    settings.expressions[idx].id = newId;
-    if (settings.activeExpressionId == oldId) {
-      settings.activeExpressionId = newId;
-    }
-    if (_editingExpressionId == oldId) _editingExpressionId = newId;
-    settings.expressions.sort((a, b) => a.id.compareTo(b.id));
-    await settings.save();
-    notifyListeners();
-    return null;
-  }
-
-  Future<void> renameExpression(int id, String name) async {
-    settings.expressionById(id).name = name;
-    await settings.save();
-    notifyListeners();
-  }
-
-  Future<void> restoreTemplates() async {
-    final present = settings.expressions.map((e) => e.id).toSet();
-    for (final t in FaceExpression.templates()) {
-      if (!present.contains(t.id)) settings.expressions.add(t);
-    }
-    await settings.save();
-    notifyListeners();
-  }
-
-  int _nextExpressionId() {
-    var maxId = 0;
-    for (final e in settings.expressions) {
-      if (e.id > maxId) maxId = e.id;
-    }
-    return maxId + 1;
-  }
-
-  Map<String, ui.Image?> eyeImages(String side) {
-    final out = <String, ui.Image?>{};
-    for (final slot in EyeAppearance.slots) {
-      out[slot] = faceImages['$side:$slot'];
-    }
-    return out;
-  }
-
-  Map<String, String?> _faceImagePaths() {
-    final fc = faceConfig;
-    final l = fc.displayLeft;
-    final r = fc.displayRight;
-    final out = <String, String?>{'background': fc.backgroundImage};
-    for (final slot in EyeAppearance.slots) {
-      out['L:$slot'] = l.imageForSlot(slot);
-      out['R:$slot'] = r.imageForSlot(slot);
-    }
-    return out;
-  }
-
-  Future<void> _syncFaceImages() async {
-    final paths = _faceImagePaths();
-    for (final key in faceImages.keys.toList()) {
-      if (!paths.containsKey(key)) {
-        faceImages.remove(key);
-        _loadedImagePaths.remove(key);
-      }
-    }
-    for (final entry in paths.entries) {
-      final key = entry.key;
-      final path = entry.value;
-      if (path == null) {
-        if (faceImages[key] != null || _loadedImagePaths.containsKey(key)) {
-          faceImages[key] = null;
-          _loadedImagePaths.remove(key);
-          notifyListeners();
-        }
-      } else if (_loadedImagePaths[key] != path) {
-        final img = await _loadImage(path);
-        faceImages[key] = img;
-        _loadedImagePaths[key] = path;
-        notifyListeners();
-      }
-    }
-  }
-
-  Future<ui.Image?> _loadImage(String path) async {
-    try {
-      final bytes = await File(path).readAsBytes();
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      return frame.image;
-    } catch (e) {
-      _addLog('⚠️ Could not load image: $path');
-      return null;
-    }
-  }
+  /// notifyListeners for the extension parts of this class (it is @protected).
+  void _notify() => notifyListeners();
 
   // ------------------------------------------------------------ chrome (UI)
   void pokeChrome() {
@@ -541,9 +370,6 @@ class AppState extends ChangeNotifier {
   // ----------------------------------------------------------------- modes
   void setEyeMode(EyeMode m) {
     _eyeMode = m;
-    if (m == EyeMode.follow) {
-      connections.brain.subscribe(RosTopics.lookAt, RosTypes.poseStamped);
-    }
     notifyListeners();
   }
 
@@ -616,7 +442,7 @@ class AppState extends ChangeNotifier {
         const msg = 'Brain connected';
         _addLog('🔌 $msg');
         if (!_connEventController.isClosed) _connEventController.add(msg);
-        connections.brain.subscribe(RosTopics.faceExpression, RosTypes.int32);
+        _brainHandshake();
         // Brain restarted/(re)connected: re-send the WebRTC offer so the brain
         // re-establishes the camera peer while the camera is already running.
         if (webrtc.isActive) webrtc.recreateOffer();

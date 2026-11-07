@@ -44,14 +44,32 @@ class RosTopics {
   static const gps = '/gps/fix';
 }
 
-/// ROS-compatible message type strings (used in the optional `subscribe` op).
-class RosTypes {
-  static const poseStamped = 'geometry_msgs/PoseStamped';
-  static const pose = 'geometry_msgs/Pose';
-  static const string = 'std_msgs/String';
-  static const int32 = 'std_msgs/Int32';
-  static const imu = 'sensor_msgs/Imu';
-  static const navSatFix = 'sensor_msgs/NavSatFix';
+/// What the app exchanges with the brain, and how it introduces itself.
+///
+/// smabo-brain and smabo-brain-ros both serve `ws://<brain>:9090/` and take
+/// the same rosbridge handshake: on connect the app advertises what it
+/// publishes and subscribes to what it reads, then publishes with the `/app`
+/// source prefix (the brain strips it). The tables mirror smabo-brain's
+/// brain/topics.py, whose tests check that they match.
+class RosProtocol {
+  static const sourcePrefix = '/app';
+
+  /// Canonical topics the app publishes (sent as `/app<topic>`), with types.
+  static const publish = <String, String>{
+    RosTopics.imu: 'sensor_msgs/msg/Imu',
+    RosTopics.gps: 'sensor_msgs/msg/NavSatFix',
+    RosTopics.speechAudio: 'audio_common_msgs/msg/AudioData',
+    '/webrtc/offer': 'std_msgs/msg/String',
+    '/webrtc/app_ice': 'std_msgs/msg/String',
+  };
+
+  /// Canonical topics the app reads, with types.
+  static const subscribe = <String, String>{
+    RosTopics.faceExpression: 'std_msgs/msg/Int32',
+    RosTopics.lookAt: 'geometry_msgs/msg/PoseStamped',
+    RosTopics.speechSay: 'std_msgs/msg/String',
+    '/webrtc/answer': 'std_msgs/msg/String',
+  };
 }
 
 /// A ROS time `{sec, nanosec}` from the current wall clock.
