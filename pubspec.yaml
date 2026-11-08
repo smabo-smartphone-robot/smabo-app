@@ -61,7 +61,6 @@ dependencies:
 
   # Face customisation: colour picker + image picker
   flutter_colorpicker: ^1.1.0
-  image_picker: ^1.1.2
   record: ^7.1.0
 
 dev_dependencies:

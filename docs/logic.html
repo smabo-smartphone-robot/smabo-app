@@ -85,7 +85,7 @@
 <table>
   <tr><th>用途</th><th>topic</th><th>型（互換）</th><th>方向</th></tr>
   <tr><td>視線追従</td><td>/look_at</td><td>geometry_msgs/PoseStamped</td><td>←brain</td></tr>
-  <tr><td>表情切替</td><td>/expression</td><td>std_msgs/Int32</td><td>←brain</td></tr>
+  <tr><td>表情切替</td><td>/expression</td><td>std_msgs/String（表情の名前。大文字小文字は区別しない）</td><td>←brain</td></tr>
   <tr><td>読み上げ要求</td><td>/speech/say</td><td>std_msgs/String</td><td>←brain</td></tr>
   <tr><td>録音した発話</td><td>/speech/audio</td><td>audio_common_msgs/AudioData（base64 の WAV）</td><td>→brain</td></tr>
   <tr><td>IMU</td><td>/imu/data</td><td>sensor_msgs/Imu</td><td>→brain</td></tr>
@@ -118,7 +118,7 @@
   <li>顔画面の「Face settings」から遷移。<b>左：ライブプレビュー／右：設定</b>。</li>
   <li>プレビューは実画面と同じアスペクト比の仮想キャンバスに描き <code>FittedBox</code> で縮小（WYSIWYG）。</li>
   <li>色は右ペイン内インラインで <b>Wheel / RGB / HSV</b> 指定、変更は即プレビュー反映。</li>
-  <li>サイズはスライダー＋テキスト両方。各要素に画像読込（image_picker）可。背景色＝瞼色。</li>
+  <li>サイズはスライダー＋テキスト両方。背景色＝瞼色。</li>
 </ul>
 
 <h2 id="voice">5. 音声</h2>

@@ -11,7 +11,7 @@ ESP32ロボット用スマートフォンアプリ（Flutter製）。
 
 | 機能 | 説明 |
 |------|------|
-| **顔表示** | カスタマイズ可能な2Dアニメーション顔（表情・色・形・まぶた・回転）。`/expression`（Int32）で表情、`/look_at`（PoseStamped）で視線を切替 |
+| **顔表示** | カスタマイズ可能な2Dアニメーション顔（表情・色・形・まぶた・回転）。`/expression`（String、表情の名前）で表情、`/look_at`（PoseStamped）で視線を切替 |
 | **センサ送信** | IMU（`/imu/data`）・GPS（`/gps/fix`）を brain へ送信 |
 | **カメラ映像** | WebRTC で brain へ映像を送信（シグナリングは `/webrtc/offer`・`/webrtc/app_ice`・`/webrtc/answer`） |
 | **音声入力** | ウェイクワード「smabo」（または画面タップ）で発話を録音し、WAV を `/speech/audio` で brain へ送信。音声認識（STT）は brain 側で実行 |
@@ -59,11 +59,57 @@ WebSocket（rosbridge v2.0 互換 JSON）で brain に接続します。
 
 送信するトピックには送信元 prefix `/app` が付きます（brain が剥がして再配信）。
 
-- 送信: `/imu/data`, `/gps/fix`, `/speech/audio`, `/webrtc/offer`, `/webrtc/app_ice`
+- 送信: `/imu/data`, `/gps/fix`, `/speech/audio`, `/webrtc/offer`, `/webrtc/app_ice`, `/phone/config`, `/phone/config_url`
 - 受信: `/look_at`, `/expression`, `/speech/say`, `/webrtc/answer`
 - 接続のたびに、送信トピックを `advertise`、受信トピックを `subscribe` します（smabo-brain / smabo-brain-ros のどちらでも同じ。表は `lib/core/wire/ros_compat.dart` の `RosProtocol`）
 
 カメラ映像は WebSocket ではなく WebRTC で brain に送ります。
+
+### 設定の REST API（ポート 8081）
+
+ESP32 と同じく、設定は REST で読み書きできます。smabo-web の Config タブ（Phone 欄）はこれを使います。smabo-sim のスマホも同じ API を持つので、実機とシミュレータを同じ画面で設定できます。
+
+| | |
+|---|---|
+| `GET /config` | 設定全体（JSON） |
+| `POST /config` | 一部だけの JSON を送ると、その項目だけ変える。返事は `{"ok": true, "ignored": [...]}`（知らない項目・読み取り専用の項目・型の違う値は無視して返す） |
+| `/app/phone/config_url` | `http://<スマホのIP>:8081`。接続時と 5 秒ごと |
+| `/app/phone/config` | 設定全体（JSON 文字列）。接続時と、変わるたび（アプリの設定画面で変えても、REST で変えても） |
+
+```json
+{
+  "brain":   {"host": "smabo-brain.local", "port": 9090},
+  "http":    {"port": 8081},
+  "sensors": {"imu": {"enabled": false, "rate_hz": 20}, "gps": {"enabled": false},
+              "camera": {"enabled": false, "front": true}},
+  "voice":   {"enabled": true, "wake_word": "smabo", "stt_locale": "ja_JP"},
+  "speech":  {"tts": true, "tts_language": "ja-JP", "bubble": true, "ignore_repeated": true},
+  "face":    {"auto_hide": true, "auto_hide_seconds": 5, "expression": "Normal",
+              "expressions": ["Normal", "Sleepy", "Angry", "..."]},
+  "app":     {"name": "smabo-app", "version": "0.1.3+4", "schema": 1}
+}
+```
+
+`brain`・`http`・`app` と表情の一覧は読み取り専用です（brain の接続先はアプリの設定画面で変えます）。中身は `lib/core/models/phone_config.dart`、サーバーは `lib/services/config_server.dart`。
+
+#### 表情は名前で選ぶ
+
+表情は**名前**で指定します（`/expression` の `std_msgs/String`、設定の `face.expression`）。名前は大文字小文字と前後の空白を区別せずに照らし合わせ、同じ名前は付けられません（追加・複製では「Angry (copy) 2」のように番号が付きます）。知らない名前が届いたときは表示を変えず、ログに残します。番号（id）はアプリの中だけで使い、画面には出さず変更もできません（下の `/face/expressions/<id>` の URL でだけ使います）。表情の名前を変えたら、その名前で呼んでいる brain のスクリプトなども合わせて直してください。
+
+#### 表情（`/face/...`）
+
+表情も同じポートで編集できます。smabo-web の「Edit expressions」は `GET /face/schema` の内容（項目・型・範囲・どの目の形で使うか）から画面を組み立てるので、アプリに項目を足せば web は変えなくても表示されます。
+
+| | |
+|---|---|
+| `GET /face/schema` | 編集できる項目の一覧（`test/face_schema.json` と同じ。smabo-sim のテストもこれと比べる） |
+| `GET /face/expressions` | `{"active": id, "expressions": [...]}`。色は `"#RRGGBB"`、目の形は名前（`round` など） |
+| `POST /face/expressions/<id>` | 一部だけ変える。`{"ok": true, "ignored": [...]}` |
+| `POST /face/expressions` | 追加（`{"copy_of": id}` で複製）。`{"ok": true, "id": 新しい id}` |
+| `DELETE /face/expressions/<id>` | 削除（最後の 1 つは消せない） |
+| `GET /face/preview.png?id=<id>&w=<px>&h=<px>` | その表情をアプリの描画で PNG にしたもの（目は正面・開いた状態。辺は最大 1024px）。smabo-web のプレビュー用 |
+
+アプリの編集画面と同じく、左右共通（`per_eye: false`）のときは右目は左目のコピーになり、`per_eye` をオンにすると左目のコピーから始まります。スキーマを変えたら `UPDATE_FACE_SCHEMA=1 flutter test test/face_schema_test.dart` で `test/face_schema.json` を作り直します。
 
 ---
 
@@ -146,7 +192,6 @@ Android・iOS の欄に問題がないことを確認します。
 | `permission_handler` | カメラ・マイク・位置情報パーミッション |
 | `vector_math` | クォータニオン計算（IMU/Pose） |
 | `flutter_colorpicker` | 顔カスタマイズ用カラーピッカー |
-| `image_picker` | 顔カスタマイズ用画像選択 |
 
 ---
 

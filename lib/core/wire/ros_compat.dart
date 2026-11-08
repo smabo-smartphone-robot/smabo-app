@@ -21,7 +21,7 @@ import 'package:vector_math/vector_math_64.dart' as vm;
 ///   - [speechAudio] is published (recorded utterance for smabo-brain to
 ///     transcribe; the text comes back on [speechRecognized], shown in smabo-web).
 ///   - [speechSay] is received (text to read aloud, std_msgs/String shape).
-///   - [faceExpression] is received (active expression id, std_msgs/Int32 shape).
+///   - [faceExpression] is received (expression name, std_msgs/String shape).
 ///   - [imu] / [gps] are published (sensors). The camera is streamed over
 ///     WebRTC (see services/webrtc_service.dart), not as a ROS topic here.
 class RosTopics {
@@ -35,13 +35,20 @@ class RosTopics {
   /// [speechRecognized].
   static const speechAudio = '/speech/audio';
 
-  /// Active facial-expression id, received from the brain device
-  /// (std_msgs/Int32 shape: `{data: <id>}`).
+  /// The facial expression to show, by name (ignoring case), received from
+  /// the brain device (std_msgs/String shape: `{data: "Angry"}`).
   static const faceExpression = '/expression';
 
   // --- brain: sensors ---
   static const imu = '/imu/data';
   static const gps = '/gps/fix';
+
+  // --- settings (REST /config on the phone, port 8081) ---
+  /// The phone's settings tree as JSON (std_msgs/String), after every change.
+  static const phoneConfig = '/phone/config';
+
+  /// `http://<phone ip>:8081`, the REST settings API (std_msgs/String, every 5 s).
+  static const phoneConfigUrl = '/phone/config_url';
 }
 
 /// What the app exchanges with the brain, and how it introduces itself.
@@ -61,11 +68,14 @@ class RosProtocol {
     RosTopics.speechAudio: 'audio_common_msgs/msg/AudioData',
     '/webrtc/offer': 'std_msgs/msg/String',
     '/webrtc/app_ice': 'std_msgs/msg/String',
+    // the REST settings API: where it is, and the whole tree after a change
+    RosTopics.phoneConfig: 'std_msgs/msg/String',
+    RosTopics.phoneConfigUrl: 'std_msgs/msg/String',
   };
 
   /// Canonical topics the app reads, with types.
   static const subscribe = <String, String>{
-    RosTopics.faceExpression: 'std_msgs/msg/Int32',
+    RosTopics.faceExpression: 'std_msgs/msg/String',
     RosTopics.lookAt: 'geometry_msgs/msg/PoseStamped',
     RosTopics.speechSay: 'std_msgs/msg/String',
     '/webrtc/answer': 'std_msgs/msg/String',
@@ -93,24 +103,12 @@ Map<String, dynamic> rosHeader(String frameId) {
 class RosMessages {
   // ---------------------------------------------------------------------- //
   // std_msgs/String  ← /speech/say  (text to read aloud, in)
+  //                  ← /expression  (expression name, in)
   // ---------------------------------------------------------------------- //
-  /// Extract the text from a std_msgs/String (`/speech/say`).
+  /// Extract the text from a std_msgs/String (`/speech/say`, `/expression`).
   static String? parseString(Map<String, dynamic> msg) {
     final d = msg['data'];
     return d is String ? d : null;
-  }
-
-  // ---------------------------------------------------------------------- //
-  // std_msgs/Int32  ↔ /expression  (active expression id)
-  // ---------------------------------------------------------------------- //
-  static Map<String, dynamic> int32(int data) => {'data': data};
-
-  /// Extract an integer from a std_msgs/Int32 (`{data: <int>}`).
-  static int? parseInt32(Map<String, dynamic> msg) {
-    final d = msg['data'];
-    if (d is num) return d.toInt();
-    if (d is String) return int.tryParse(d);
-    return null;
   }
 
   // ---------------------------------------------------------------------- //

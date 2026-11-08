@@ -1,0 +1,207 @@
+{
+  "schema": 1,
+  "expression": [
+    {
+      "key": "name",
+      "type": "string",
+      "label": "Name (unique: /expression picks it by name)"
+    },
+    {
+      "key": "background",
+      "type": "color",
+      "label": "Background (also the eyelids)"
+    },
+    {
+      "key": "blink",
+      "type": "bool",
+      "label": "Blink"
+    },
+    {
+      "key": "per_eye",
+      "type": "bool",
+      "label": "Separate left / right eyes"
+    }
+  ],
+  "eye": [
+    {
+      "key": "shape",
+      "type": "enum",
+      "label": "Shape",
+      "group": "Shape",
+      "options": [
+        "round",
+        "arc",
+        "heart",
+        "swirl",
+        "squeeze"
+      ]
+    },
+    {
+      "key": "sclera_color",
+      "type": "color",
+      "label": "Sclera (white)",
+      "group": "Shape",
+      "shapes": [
+        "round"
+      ]
+    },
+    {
+      "key": "iris_color",
+      "type": "color",
+      "label": "Iris / line color",
+      "group": "Shape",
+      "shapes": [
+        "round",
+        "arc",
+        "heart",
+        "swirl",
+        "squeeze"
+      ]
+    },
+    {
+      "key": "sclera_scale",
+      "type": "number",
+      "label": "Size",
+      "group": "Shape",
+      "min": 0.3,
+      "max": 1.6,
+      "step": 0.01
+    },
+    {
+      "key": "shape_rotation",
+      "type": "number",
+      "label": "Rotation (°)",
+      "group": "Shape",
+      "min": -180.0,
+      "max": 180.0,
+      "step": 1.0
+    },
+    {
+      "key": "iris_frac",
+      "type": "number",
+      "label": "Iris size",
+      "group": "Iris & pupil",
+      "min": 0.1,
+      "max": 1.0,
+      "step": 0.01,
+      "shapes": [
+        "round"
+      ]
+    },
+    {
+      "key": "pupil_color",
+      "type": "color",
+      "label": "Pupil color",
+      "group": "Iris & pupil",
+      "shapes": [
+        "round"
+      ]
+    },
+    {
+      "key": "pupil_frac",
+      "type": "number",
+      "label": "Pupil size (≤ iris size)",
+      "group": "Iris & pupil",
+      "min": 0.05,
+      "max": 1.0,
+      "step": 0.01,
+      "shapes": [
+        "round"
+      ]
+    },
+    {
+      "key": "highlight_visible",
+      "type": "bool",
+      "label": "Highlight",
+      "group": "Highlight",
+      "shapes": [
+        "round",
+        "heart"
+      ]
+    },
+    {
+      "key": "highlight_color",
+      "type": "color",
+      "label": "Highlight color",
+      "group": "Highlight",
+      "shapes": [
+        "round",
+        "heart"
+      ],
+      "when": "highlight_visible"
+    },
+    {
+      "key": "highlight_frac",
+      "type": "number",
+      "label": "Highlight size",
+      "group": "Highlight",
+      "min": 0.05,
+      "max": 0.6,
+      "step": 0.01,
+      "shapes": [
+        "round"
+      ],
+      "when": "highlight_visible"
+    },
+    {
+      "key": "highlight_x",
+      "type": "number",
+      "label": "Highlight X",
+      "group": "Highlight",
+      "min": -1.0,
+      "max": 1.0,
+      "step": 0.01,
+      "shapes": [
+        "round"
+      ],
+      "when": "highlight_visible"
+    },
+    {
+      "key": "highlight_y",
+      "type": "number",
+      "label": "Highlight Y",
+      "group": "Highlight",
+      "min": -1.0,
+      "max": 1.0,
+      "step": 0.01,
+      "shapes": [
+        "round"
+      ],
+      "when": "highlight_visible"
+    },
+    {
+      "key": "lid_top",
+      "type": "number",
+      "label": "Upper lid",
+      "group": "Eyelid",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01
+    },
+    {
+      "key": "lid_bottom",
+      "type": "number",
+      "label": "Lower lid",
+      "group": "Eyelid",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01
+    },
+    {
+      "key": "rotation",
+      "type": "number",
+      "label": "Lid tilt (°)",
+      "group": "Eyelid",
+      "min": -180.0,
+      "max": 180.0,
+      "step": 1.0
+    }
+  ],
+  "eyes": [
+    "left_eye",
+    "right_eye"
+  ],
+  "notes": {
+    "right_eye": "used only when per_eye is true; otherwise it mirrors left_eye"
+  }
+}

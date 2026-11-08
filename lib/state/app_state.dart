@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 
@@ -9,13 +9,18 @@ import '../core/models/app_mode.dart';
 import '../core/models/app_settings.dart';
 import '../core/models/face_config.dart';
 import '../core/models/face_expression.dart';
+import '../core/models/face_schema.dart';
+import '../core/models/phone_config.dart';
 import '../core/wire/ros_compat.dart';
 import '../core/wire/ws_client.dart';
+import '../services/config_server.dart';
 import '../services/sensor_service.dart';
 import '../services/webrtc_service.dart';
 import '../services/speech_service.dart';
 import '../services/tts_service.dart';
+import '../ui/face/face_render.dart';
 
+part 'app_state_config.dart';
 part 'app_state_expressions.dart';
 
 /// Central application state: wires the brain connection, services and UI.
@@ -29,6 +34,7 @@ class AppState extends ChangeNotifier {
     webrtc = WebRtcService(_publishToBrain);
     speech = SpeechService();
     tts = TtsService();
+    configServer = ConfigServer(read: phoneConfig, write: applyPhoneConfig, face: _FaceRest(this));
   }
 
   late final ConnectionManager connections;
@@ -36,6 +42,14 @@ class AppState extends ChangeNotifier {
   late final WebRtcService webrtc;
   late final SpeechService speech;
   late final TtsService tts;
+
+  /// The phone's REST settings API (`GET/POST /config` on port 8081).
+  late final ConfigServer configServer;
+
+  // Announcing it: see app_state_config.dart.
+  String? _configUrl;
+  Timer? _configUrlTimer;
+  int _configBatch = 0;
 
   AppSettings settings = AppSettings();
 
@@ -73,13 +87,11 @@ class AppState extends ChangeNotifier {
   /// duplicates when [AppSettings.ignoreRepeatedSpeech] is on.
   String _lastSpokenText = '';
 
-  /// Face appearance and the decoded images per element (null until loaded).
-  /// While an expression is being edited in the settings screen, [_previewConfig]
-  /// (live, unsaved) takes precedence so the preview and its images reflect the
-  /// in-progress edit; otherwise the active expression's config is shown.
+  /// Face appearance. While an expression is being edited in the settings
+  /// screen, [_previewConfig] (live, unsaved) takes precedence so the preview
+  /// reflects the in-progress edit; otherwise the active expression's config
+  /// is shown.
   FaceConfig get faceConfig => _previewConfig ?? settings.faceConfig;
-  final Map<String, ui.Image?> faceImages = {};
-  final Map<String, String> _loadedImagePaths = {};
 
   // Expression editing (settings screen): which expression is open and its
   // live, not-yet-committed config.
@@ -128,11 +140,11 @@ class AppState extends ChangeNotifier {
     }));
 
     connections.applySettings(settings);
+    await _startConfigServer();
     await _initVoice();
     _applyDefaultSensors();
     _refreshChrome();
     notifyListeners();
-    _syncFaceImages();
   }
 
   Future<void> _initVoice() async {
@@ -156,7 +168,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> toggleVoice(bool on) async {
     settings.voiceEnabled = on;
-    await settings.save();
+    await _saveSettings();
     if (on) {
       await _enableVoice();
     } else {
@@ -171,7 +183,7 @@ class AppState extends ChangeNotifier {
     final w = word.trim();
     if (w.isEmpty || w == settings.wakeWord) return;
     settings.wakeWord = w;
-    await settings.save();
+    await _saveSettings();
     speech.updateConfig(wakeWord: w);
     notifyListeners();
   }
@@ -180,7 +192,7 @@ class AppState extends ChangeNotifier {
   Future<void> setImuRate(int hz) async {
     if (hz <= 0 || hz == settings.imuRateHz) return;
     settings.imuRateHz = hz;
-    await settings.save();
+    await _saveSettings();
     if (sensors.imuOn) sensors.startImu(rateHz: hz);
     notifyListeners();
   }
@@ -189,7 +201,7 @@ class AppState extends ChangeNotifier {
   Future<void> setTtsLanguage(String lang) async {
     if (lang.isEmpty || lang == settings.ttsLanguage) return;
     settings.ttsLanguage = lang;
-    await settings.save();
+    await _saveSettings();
     await tts.setLanguage(lang);
     notifyListeners();
   }
@@ -198,7 +210,7 @@ class AppState extends ChangeNotifier {
   Future<void> setSttLocale(String locale) async {
     if (locale.isEmpty || locale == settings.sttLocaleId) return;
     settings.sttLocaleId = locale;
-    await settings.save();
+    await _saveSettings();
     speech.updateConfig(localeId: locale);
     notifyListeners();
   }
@@ -208,21 +220,21 @@ class AppState extends ChangeNotifier {
 
   Future<void> toggleTts(bool on) async {
     settings.ttsEnabled = on;
-    await settings.save();
+    await _saveSettings();
     if (!on) await tts.stop();
     notifyListeners();
   }
 
   Future<void> toggleSpeechBubble(bool on) async {
     settings.speechBubbleEnabled = on;
-    await settings.save();
+    await _saveSettings();
     if (!on) _clearBubble();
     notifyListeners();
   }
 
   Future<void> toggleIgnoreRepeatedSpeech(bool on) async {
     settings.ignoreRepeatedSpeech = on;
-    await settings.save();
+    await _saveSettings();
     notifyListeners();
   }
 
@@ -295,12 +307,12 @@ class AppState extends ChangeNotifier {
         }
         break;
       case RosTopics.faceExpression:
-        final id = RosMessages.parseInt32(m.msg);
-        if (id != null) {
-          if (settings.expressions.any((e) => e.id == id)) {
-            setActiveExpression(id);
+        final name = RosMessages.parseString(m.msg);
+        if (name != null && name.trim().isNotEmpty) {
+          if (settings.expressionByName(name) != null) {
+            setActiveExpressionByName(name);
           } else {
-            _addLog('⚠️ Unknown expression id: $id (ignored)');
+            _addLog('⚠️ Unknown expression: "$name" (ignored)');
           }
         }
         break;
@@ -381,7 +393,7 @@ class AppState extends ChangeNotifier {
       sensors.stopImu();
     }
     settings.imuEnabled = on;
-    settings.save();
+    _saveSettings();
     notifyListeners();
   }
 
@@ -394,14 +406,14 @@ class AppState extends ChangeNotifier {
       sensors.stopGps();
       settings.gpsEnabled = false;
     }
-    settings.save();
+    _saveSettings();
     notifyListeners();
   }
 
   Future<void> setCameraFront(bool front) async {
     if (settings.cameraFront == front) return;
     settings.cameraFront = front;
-    await settings.save();
+    await _saveSettings();
     final wasActive = webrtc.isActive;
     await webrtc.stop();
     if (wasActive) await webrtc.start(settings);
@@ -416,15 +428,32 @@ class AppState extends ChangeNotifier {
       await webrtc.stop();
       settings.cameraEnabled = false;
     }
-    settings.save();
+    _saveSettings();
     notifyListeners();
   }
 
   // ------------------------------------------------------------- settings
+  Future<void> setFaceAutoHide(bool on) async {
+    if (settings.faceAutoHide == on) return;
+    settings.faceAutoHide = on;
+    await _saveSettings();
+    _refreshChrome();
+    notifyListeners();
+  }
+
+  Future<void> setFaceAutoHideSeconds(int seconds) async {
+    final s = seconds.clamp(1, 3600);
+    if (settings.faceAutoHideSeconds == s) return;
+    settings.faceAutoHideSeconds = s;
+    await _saveSettings();
+    _refreshChrome();
+    notifyListeners();
+  }
+
   Future<void> updateSettings(AppSettings newSettings) async {
     final reconnect = newSettings.brainUrl != settings.brainUrl;
     settings = newSettings;
-    await settings.save();
+    await _saveSettings();
     await tts.setLanguage(settings.ttsLanguage);
     speech.updateConfig(
       wakeWord: settings.wakeWord,
@@ -443,11 +472,13 @@ class AppState extends ChangeNotifier {
         _addLog('🔌 $msg');
         if (!_connEventController.isClosed) _connEventController.add(msg);
         _brainHandshake();
+        _announceConfig();
         // Brain restarted/(re)connected: re-send the WebRTC offer so the brain
         // re-establishes the camera peer while the camera is already running.
         if (webrtc.isActive) webrtc.recreateOffer();
       } else if (_prevBrainStatus == WsStatus.connected &&
           (s == WsStatus.error || s == WsStatus.disconnected)) {
+        _configUrl = null; // the network may change before the next connect
         const msg = 'Brain disconnected';
         _addLog('🔌 $msg');
         if (!_connEventController.isClosed) _connEventController.add(msg);
@@ -468,6 +499,8 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _chromeHideTimer?.cancel();
     _bubbleTimer?.cancel();
+    _configUrlTimer?.cancel();
+    configServer.stop();
     for (final s in _subs) {
       s.cancel();
     }

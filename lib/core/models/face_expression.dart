@@ -2,10 +2,37 @@ import 'dart:ui' show Color;
 
 import 'face_config.dart';
 
-/// One named, ID'd facial expression: a [FaceConfig] (colours, sizes and the
-/// per-eye [EyeShapeParams]) plus a stable integer [id]. The [id] is shown in
-/// the UI and is what a brain device sends over `/expression`
-/// (`std_msgs/Int32`) to switch the active expression.
+/// [name] as expressions are matched: case and surrounding spaces don't count.
+String expressionKey(String name) => name.trim().toLowerCase();
+
+/// [base], or "[base] 2", "[base] 3", … whichever no name in [taken] matches.
+String uniqueExpressionName(String base, Iterable<String> taken) {
+  final used = {for (final n in taken) expressionKey(n)};
+  base = base.trim().isEmpty ? 'Expression' : base.trim();
+  if (!used.contains(expressionKey(base))) return base;
+  for (var i = 2;; i++) {
+    final n = '$base $i';
+    if (!used.contains(expressionKey(n))) return n;
+  }
+}
+
+/// [list] with every name made unique (later duplicates get " 2", " 3", …),
+/// for saves from before names had to be unique.
+List<FaceExpression> withUniqueNames(List<FaceExpression> list) {
+  final taken = <String>[];
+  for (final e in list) {
+    e.name = uniqueExpressionName(e.name, taken);
+    taken.add(e.name);
+  }
+  return list;
+}
+
+/// One named facial expression: a [FaceConfig] (colours, sizes and the per-eye
+/// [EyeAppearance]) plus an internal integer [id]. The [name] is unique
+/// (ignoring case) and is how others pick it: a brain device sends it over
+/// `/expression` (`std_msgs/String`), smabo-web sets it as `face.expression`.
+/// The [id] is only this app's handle (storage, the `/face/expressions/<id>`
+/// editing API) and is never shown or edited.
 class FaceExpression {
   FaceExpression({
     required this.id,
@@ -13,8 +40,7 @@ class FaceExpression {
     required this.config,
   });
 
-  /// Identifier shown in the UI and used by `/expression`. Auto-assigned
-  /// (`max(id)+1`) but user-editable; must stay unique within the list.
+  /// Internal handle, auto-assigned (`max(id)+1`) and unique.
   int id;
   String name;
   FaceConfig config;
@@ -36,7 +62,7 @@ class FaceExpression {
       );
 
   /// The built-in templates seeded on first run and re-addable via
-  /// "restore templates". Colour/shape only (no images) so they are portable.
+  /// "restore templates".
   /// [id] == 1 is the neutral default and is used as the fallback expression.
   static List<FaceExpression> templates() {
     EyeAppearance eye({

@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/models/face_config.dart';
@@ -103,14 +102,12 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
       ..._expressionManager(),
       const Divider(color: Colors.white24),
       Text(
-        'Editing: ID $_editingId  "${_state.expressionById(_editingId).name}"',
+        'Editing: "${_state.expressionById(_editingId).name}"',
         style: const TextStyle(color: Colors.cyanAccent, fontSize: 13),
       ),
       const SizedBox(height: 8),
       // Shared background (whole screen + eyelid colour).
-      _colorRow('Background', _d.backgroundColor, 'bg', (c) => _d.backgroundColor = c,
-          getImage: () => _d.backgroundImage,
-          setImage: (p) => _d.backgroundImage = p),
+      _colorRow('Background', _d.backgroundColor, 'bg', (c) => _d.backgroundColor = c),
       SwitchListTile(
         dense: true,
         contentPadding: EdgeInsets.zero,
@@ -185,8 +182,7 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
           for (final e in state.expressions)
             InputChip(
               label: Text(
-                '${e.id}: ${e.name}'
-                '${e.id == state.activeExpressionId ? ' ●' : ''}',
+                '${e.name}${e.id == state.activeExpressionId ? ' ●' : ''}',
               ),
               selected: e.id == _editingId,
               onSelected: (_) => _editExpression(e.id),
@@ -214,11 +210,6 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
             label: const Text('Rename'),
             onPressed: _renameDialog,
           ),
-          TextButton.icon(
-            icon: const Icon(Icons.tag, size: 16),
-            label: const Text('ID'),
-            onPressed: _idDialog,
-          ),
           if (state.expressions.length > 1)
             TextButton.icon(
               icon: const Icon(Icons.delete, size: 16, color: Colors.redAccent),
@@ -239,64 +230,37 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
     ];
   }
 
+  /// Rename the expression. Names are unique (ignoring case): `/expression`
+  /// and smabo-web pick expressions by name.
   Future<void> _renameDialog() async {
     final ctrl =
         TextEditingController(text: _state.expressionById(_editingId).name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        scrollable: true,
-        title: const Text('Expression name'),
-        content: TextField(controller: ctrl, autofocus: true),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text),
-              child: const Text('OK')),
-        ],
-      ),
-    );
-    if (name != null && name.trim().isNotEmpty) {
-      await _state.renameExpression(_editingId, name.trim());
-      setState(() {});
-    }
-  }
-
-  /// Edit the expression's ID. Validates inline (positive, not already used).
-  Future<void> _idDialog() async {
-    final current = _state.expressionById(_editingId).id;
-    final ctrl = TextEditingController(text: '$current');
     String? error;
-    final newId = await showDialog<int>(
+    final done = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setLocal) => AlertDialog(
           scrollable: true,
-          title: const Text('Expression ID'),
+          title: const Text('Expression name'),
           content: TextField(
             controller: ctrl,
             autofocus: true,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(hintText: 'ID', errorText: error),
+            decoration: InputDecoration(
+                helperText: '/expression selects it by this name',
+                errorText: error),
           ),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('Cancel')),
             TextButton(
-              onPressed: () {
-                final v = int.tryParse(ctrl.text.trim());
-                if (v == null || v < 1) {
-                  setLocal(() => error = 'Enter a positive integer');
-                  return;
+              onPressed: () async {
+                final err = await _state.renameExpression(_editingId, ctrl.text);
+                if (err == null) {
+                  if (ctx.mounted) Navigator.pop(ctx, true);
+                } else {
+                  setLocal(() => error = err);
                 }
-                if (v != current &&
-                    _state.expressions.any((e) => e.id == v)) {
-                  setLocal(() => error = 'ID $v is already used');
-                  return;
-                }
-                Navigator.pop(ctx, v);
               },
               child: const Text('OK'),
             ),
@@ -304,18 +268,10 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
         ),
       ),
     );
-    if (newId != null && newId != current) {
-      final err = await _state.changeExpressionId(current, newId);
-      if (err == null) {
-        setState(() => _editingId = newId);
-      } else if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(err)));
-      }
-    }
+    if (done == true) setState(() {});
   }
 
-  // -------------------------------------------------------------- eye editor
+  // ------------------------------------------------------------- eye editor
   /// Controls for one eye. [prefix] ('L'/'R') keys the colour rows; [setEye]
   /// replaces the eye in [_d] (used for "reset"). Only the controls relevant to
   /// the eye's [EyeShape] are shown.
@@ -342,7 +298,7 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
           ],
         ),
       ),
-      // ─────────── entire: shape, base colour/image and overall size.
+      // ─────────── entire: shape, base colour and overall size.
       _sectionHeader('entire'),
       Row(
         children: [
@@ -364,7 +320,6 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
                     value: EyeShape.swirl, child: Text('Swirl')),
                 DropdownMenuItem(
                     value: EyeShape.squeeze, child: Text('Squeeze (><)')),
-                DropdownMenuItem(value: EyeShape.image, child: Text('Image')),
               ],
               onChanged: (v) {
                 if (v == null) return;
@@ -380,15 +335,7 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
       ),
       if (e.shape == EyeShape.round)
         _colorRow('Sclera (white)', e.scleraColor, '$prefix:sclera',
-            (c) => e.scleraColor = c,
-            getImage: () => e.scleraImage,
-            setImage: (p) => e.setImageForSlot('sclera', p))
-      else if (e.shape == EyeShape.image)
-        _imageRow(e)
-      else if (e.shape == EyeShape.heart)
-        _colorRow('Color', e.irisColor, '$prefix:iris', (c) => e.irisColor = c,
-            getImage: () => e.irisImage,
-            setImage: (p) => e.setImageForSlot('iris', p))
+            (c) => e.scleraColor = c)
       else
         _colorRow('Color', e.irisColor, '$prefix:iris',
             (c) => e.irisColor = c),
@@ -399,9 +346,7 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
       // ─────────── iris (round only).
       if (e.shape == EyeShape.round) ...[
         _sectionHeader('Iris'),
-        _colorRow('Color', e.irisColor, '$prefix:iris', (c) => e.irisColor = c,
-            getImage: () => e.irisImage,
-            setImage: (p) => e.setImageForSlot('iris', p)),
+        _colorRow('Color', e.irisColor, '$prefix:iris', (c) => e.irisColor = c),
         _sizeRow('Size', e.irisFrac, 0.1, 1.0, (v) {
           e.irisFrac = v;
           if (e.pupilFrac > e.irisFrac) e.pupilFrac = e.irisFrac;
@@ -412,9 +357,7 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
       if (e.shape == EyeShape.round) ...[
         _sectionHeader('pupil'),
         _colorRow('Color', e.pupilColor, '$prefix:pupil',
-            (c) => e.pupilColor = c,
-            getImage: () => e.pupilImage,
-            setImage: (p) => e.setImageForSlot('pupil', p)),
+            (c) => e.pupilColor = c),
         _sizeRow('Size', e.pupilFrac.clamp(0.05, e.irisFrac), 0.05, e.irisFrac,
             (v) => e.pupilFrac = v),
       ],
@@ -434,11 +377,7 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
         ),
         if (e.highlightVisible) ...[
           _colorRow('Color', e.highlightColor, '$prefix:highlight',
-              (c) => e.highlightColor = c,
-              getImage: e.shape == EyeShape.round ? () => e.highlightImage : null,
-              setImage: e.shape == EyeShape.round
-                  ? (p) => e.setImageForSlot('highlight', p)
-                  : null),
+              (c) => e.highlightColor = c),
           if (e.shape == EyeShape.round) ...[
             _sizeRow('Size', e.highlightFrac, 0.05, 0.6,
                 (v) => e.highlightFrac = v),
@@ -465,58 +404,10 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
         ),
       );
 
-  // -------------------------------------------------------------- image
-  /// Picker row for the custom-image eye shape (no colour). Shows a hint until
-  /// an image is chosen.
-  Widget _imageRow(EyeAppearance e) {
-    final path = e.irisImage;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              path == null ? 'An image will be shown here' : 'Image set',
-              style: TextStyle(
-                color: path == null ? Colors.white38 : Colors.white70,
-                fontSize: 13,
-              ),
-            ),
-          ),
-          IconButton(
-            icon: Icon(Icons.image,
-                size: 20,
-                color: path != null ? Colors.cyanAccent : Colors.white54),
-            tooltip: path != null ? 'Replace image' : 'Pick image',
-            onPressed: () async {
-              final x =
-                  await ImagePicker().pickImage(source: ImageSource.gallery);
-              if (x == null) return;
-              setState(() => e.setImageForSlot('iris', x.path));
-              _commit();
-            },
-          ),
-          if (path != null)
-            IconButton(
-              icon: const Icon(Icons.clear, size: 18, color: Colors.redAccent),
-              tooltip: 'Remove image',
-              onPressed: () {
-                setState(() => e.setImageForSlot('iris', null));
-                _commit();
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
   // -------------------------------------------------------------- colour
-  /// One colour row with an inline picker. [setImage] (when given) adds an
-  /// image button that overrides the colour for that element.
+  /// One colour row with an inline picker.
   Widget _colorRow(
-      String label, Color color, String key, ValueChanged<Color> setColor,
-      {String? Function()? getImage, void Function(String?)? setImage}) {
-    final hasImage = getImage?.call() != null;
+      String label, Color color, String key, ValueChanged<Color> setColor) {
     final open = _openColor == key;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -544,36 +435,8 @@ class _FaceSettingsScreenState extends State<FaceSettingsScreen> {
                         width: open ? 2 : 1),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: hasImage
-                      ? const Icon(Icons.block, size: 14, color: Colors.white70)
-                      : null,
                 ),
               ),
-              if (setImage != null)
-                IconButton(
-                  icon: Icon(Icons.image,
-                      size: 20,
-                      color: hasImage ? Colors.cyanAccent : Colors.white54),
-                  tooltip:
-                      hasImage ? 'Image set (tap to replace)' : 'Use image',
-                  onPressed: () async {
-                    final x = await ImagePicker()
-                        .pickImage(source: ImageSource.gallery);
-                    if (x == null) return;
-                    setState(() => setImage(x.path));
-                    _commit();
-                  },
-                ),
-              if (hasImage && setImage != null)
-                IconButton(
-                  icon: const Icon(Icons.clear,
-                      size: 18, color: Colors.redAccent),
-                  tooltip: 'Remove image',
-                  onPressed: () {
-                    setState(() => setImage(null));
-                    _commit();
-                  },
-                ),
             ],
           ),
         ),

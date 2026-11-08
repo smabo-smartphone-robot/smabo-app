@@ -7,11 +7,12 @@ import 'dart:ui' show Color;
 ///   - [heart]   : a heart — the "love" expression.
 ///   - [swirl]   : a static spiral — the "dizzy/ぐるぐる" expression.
 ///   - [squeeze] : ">" (left) / "<" (right) — the squeezed "><" expression.
-///   - [image]   : a user-picked image fills the eye (uses the iris image slot).
-enum EyeShape { round, arc, heart, swirl, squeeze, image }
+/// (Saves from older versions may name a removed `image` shape; it loads as
+/// [round].)
+enum EyeShape { round, arc, heart, swirl, squeeze }
 
 /// The complete appearance of ONE eye: its [shape], the eyelid morph
-/// ([lidTop]/[lidBottom]) and all colours/sizes/images. Each eye owns
+/// ([lidTop]/[lidBottom]) and all colours/sizes. Each eye owns
 /// its own copy so the two eyes can differ entirely (see [FaceConfig.perEye]);
 /// the screen background is the only shared element ([FaceConfig.backgroundColor]).
 ///
@@ -37,10 +38,6 @@ class EyeAppearance {
     this.highlightFrac = 0.30,
     this.highlightX = -0.32,
     this.highlightY = -0.34,
-    this.scleraImage,
-    this.irisImage,
-    this.pupilImage,
-    this.highlightImage,
   });
 
   EyeShape shape;
@@ -63,44 +60,6 @@ class EyeAppearance {
   double highlightX;
   double highlightY;
 
-  String? scleraImage;
-  String? irisImage;
-  String? pupilImage;
-  String? highlightImage;
-
-  static const slots = ['sclera', 'iris', 'pupil', 'highlight'];
-
-  String? imageForSlot(String slot) {
-    switch (slot) {
-      case 'sclera':
-        return scleraImage;
-      case 'iris':
-        return irisImage;
-      case 'pupil':
-        return pupilImage;
-      case 'highlight':
-        return highlightImage;
-    }
-    return null;
-  }
-
-  void setImageForSlot(String slot, String? path) {
-    switch (slot) {
-      case 'sclera':
-        scleraImage = path;
-        break;
-      case 'iris':
-        irisImage = path;
-        break;
-      case 'pupil':
-        pupilImage = path;
-        break;
-      case 'highlight':
-        highlightImage = path;
-        break;
-    }
-  }
-
   EyeAppearance copy() => EyeAppearance(
         shape: shape,
         lidTop: lidTop,
@@ -118,10 +77,6 @@ class EyeAppearance {
         highlightFrac: highlightFrac,
         highlightX: highlightX,
         highlightY: highlightY,
-        scleraImage: scleraImage,
-        irisImage: irisImage,
-        pupilImage: pupilImage,
-        highlightImage: highlightImage,
       );
 
   EyeAppearance clamped() {
@@ -174,10 +129,6 @@ class EyeAppearance {
         'highlightFrac': highlightFrac,
         'highlightX': highlightX,
         'highlightY': highlightY,
-        'scleraImg': scleraImage,
-        'irisImg': irisImage,
-        'pupilImg': pupilImage,
-        'hlImg': highlightImage,
       };
 
   factory EyeAppearance.fromJson(Map<String, dynamic> j) {
@@ -203,10 +154,6 @@ class EyeAppearance {
       highlightFrac: dbl('highlightFrac', 0.30),
       highlightX: dbl('highlightX', -0.32),
       highlightY: dbl('highlightY', -0.34),
-      scleraImage: j['scleraImg'] as String?,
-      irisImage: j['irisImg'] as String?,
-      pupilImage: j['pupilImg'] as String?,
-      highlightImage: j['hlImg'] as String?,
     );
   }
 
@@ -228,7 +175,6 @@ class EyeAppearance {
 class FaceConfig {
   FaceConfig({
     this.backgroundColor = const Color(0xFF000000),
-    this.backgroundImage,
     this.blinkEnabled = true,
     this.perEye = false,
     EyeAppearance? leftEye,
@@ -237,7 +183,6 @@ class FaceConfig {
         rightEye = rightEye ?? (leftEye?.copy() ?? EyeAppearance());
 
   Color backgroundColor; // also the eyelid colour (blink blends into it)
-  String? backgroundImage;
 
   /// Whether the eyes blink periodically for this expression (off for e.g.
   /// closed/sleepy or swirl looks).
@@ -261,7 +206,6 @@ class FaceConfig {
 
   FaceConfig copy() => FaceConfig(
         backgroundColor: backgroundColor,
-        backgroundImage: backgroundImage,
         blinkEnabled: blinkEnabled,
         perEye: perEye,
         leftEye: leftEye.copy(),
@@ -270,7 +214,6 @@ class FaceConfig {
 
   Map<String, dynamic> toJson() => {
         'bg': backgroundColor.toARGB32(),
-        'bgImg': backgroundImage,
         'blink': blinkEnabled,
         'perEye': perEye,
         'leftEye': leftEye.toJson(),
@@ -279,7 +222,7 @@ class FaceConfig {
 
   factory FaceConfig.fromJson(Map<String, dynamic> j) {
     // Legacy shared appearance (pre per-eye) used as a fallback so old saves
-    // migrate: the old top-level colours/sizes/images seed each eye, while any
+    // migrate: the old top-level colours/sizes seed each eye, while any
     // per-eye keys present override them.
     final legacy = <String, dynamic>{
       if (j['sclera'] != null) 'scleraColor': j['sclera'],
@@ -293,10 +236,6 @@ class FaceConfig {
       if (j['hlFrac'] != null) 'highlightFrac': j['hlFrac'],
       if (j['hlX'] != null) 'highlightX': j['hlX'],
       if (j['hlY'] != null) 'highlightY': j['hlY'],
-      if (j['scleraImg'] != null) 'scleraImg': j['scleraImg'],
-      if (j['irisImg'] != null) 'irisImg': j['irisImg'],
-      if (j['pupilImg'] != null) 'pupilImg': j['pupilImg'],
-      if (j['hlImg'] != null) 'hlImg': j['hlImg'],
     };
 
     EyeAppearance eye(Object? raw) {
@@ -308,7 +247,6 @@ class FaceConfig {
     final left = eye(j['leftEye']);
     return FaceConfig(
       backgroundColor: Color((j['bg'] as num?)?.toInt() ?? 0xFF000000),
-      backgroundImage: j['bgImg'] as String?,
       blinkEnabled: j['blink'] != false,
       perEye: j['perEye'] == true,
       leftEye: left,
