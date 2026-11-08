@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:vector_math/vector_math_64.dart' as vm;
+
+import '../models/phone_config.dart' show appVersion;
 
 // rosbridge-compatibility layer.
 //
@@ -49,6 +52,13 @@ class RosTopics {
 
   /// `http://<phone ip>:8081`, the REST settings API (std_msgs/String, every 5 s).
   static const phoneConfigUrl = '/phone/config_url';
+
+  // --- protocol check ---
+  /// Sent once per connect: `{"protocol", "client", "version"}` (std_msgs/String).
+  static const hello = '/hello';
+
+  /// The brain's `{"protocol", "brain", "version"}` (std_msgs/String).
+  static const brainInfo = '/brain/info';
 }
 
 /// What the app exchanges with the brain, and how it introduces itself.
@@ -61,6 +71,10 @@ class RosTopics {
 class RosProtocol {
   static const sourcePrefix = '/app';
 
+  /// smabo-brain's PROTOCOL_VERSION for these tables; sent on [RosTopics.hello]
+  /// and compared with the brain's [RosTopics.brainInfo].
+  static const version = 1;
+
   /// Canonical topics the app publishes (sent as `/app<topic>`), with types.
   static const publish = <String, String>{
     RosTopics.imu: 'sensor_msgs/msg/Imu',
@@ -71,6 +85,7 @@ class RosProtocol {
     // the REST settings API: where it is, and the whole tree after a change
     RosTopics.phoneConfig: 'std_msgs/msg/String',
     RosTopics.phoneConfigUrl: 'std_msgs/msg/String',
+    RosTopics.hello: 'std_msgs/msg/String',
   };
 
   /// Canonical topics the app reads, with types.
@@ -79,7 +94,31 @@ class RosProtocol {
     RosTopics.lookAt: 'geometry_msgs/msg/PoseStamped',
     RosTopics.speechSay: 'std_msgs/msg/String',
     '/webrtc/answer': 'std_msgs/msg/String',
+    RosTopics.brainInfo: 'std_msgs/msg/String',
   };
+
+  /// The `/hello` message body.
+  static Map<String, dynamic> helloMsg() => {
+        'data': jsonEncode(
+            {'protocol': version, 'client': 'smabo-app', 'version': appVersion}),
+      };
+
+  /// A warning when `/brain/info` names another protocol number, else null.
+  static String? brainInfoWarning(Map<String, dynamic> msg) {
+    final raw = msg['data'];
+    if (raw is! String) return null;
+    Object? info;
+    try {
+      info = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (info is! Map || info['protocol'] is! int) return null;
+    final protocol = info['protocol'] as int;
+    if (protocol == version) return null;
+    return '${info['brain'] ?? 'brain'} ${info['version'] ?? '?'} speaks protocol '
+        '$protocol; smabo-app $appVersion speaks $version. Update the older one.';
+  }
 }
 
 /// A ROS time `{sec, nanosec}` from the current wall clock.

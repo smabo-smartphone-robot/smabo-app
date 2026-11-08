@@ -282,7 +282,12 @@ class AppState extends ChangeNotifier {
     RosProtocol.publish.forEach(
         (topic, type) => brain.advertise('${RosProtocol.sourcePrefix}$topic', type));
     RosProtocol.subscribe.forEach(brain.subscribe);
+    _publishToBrain(RosTopics.hello, RosProtocol.helloMsg());
   }
+
+  /// Set when the brain speaks another protocol number (shown in the status bar).
+  String? _protocolWarning;
+  String? get protocolWarning => _protocolWarning;
 
   void _onBrainMessage(WireMessage m) {
     switch (m.topic) {
@@ -318,6 +323,14 @@ class AppState extends ChangeNotifier {
         break;
       case '/webrtc/answer':
         webrtc.handleAnswer(m.msg);
+        break;
+      case RosTopics.brainInfo:
+        final warning = RosProtocol.brainInfoWarning(m.msg);
+        if (warning != _protocolWarning) {
+          _protocolWarning = warning;
+          if (warning != null) _addLog('⚠️ $warning');
+          notifyListeners();
+        }
         break;
       default:
         break;
