@@ -29,7 +29,7 @@ const phoneConfigSchema = 1;
 const phoneConfigPort = 8081;
 
 /// pubspec.yaml's version (test/phone_config_test.dart checks they match).
-const appVersion = '0.1.3+4';
+const appVersion = '0.2.0+5';
 
 Map<String, dynamic> phoneConfigToJson(AppSettings s, {int httpPort = phoneConfigPort}) => {
       'brain': {'host': s.brainHost, 'port': s.brainPort},

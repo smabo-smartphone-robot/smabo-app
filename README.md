@@ -195,3 +195,7 @@ Android・iOS の欄に問題がないことを確認します。
 
 ---
 
+## バージョンと互換性
+
+ほかの smabo リポジトリとは、同じ minor 番号（`0.2.x` など）どうしで組み合わせます。対応表は
+[smabo-brain の README](https://github.com/smabo-smartphone-robot/smabo-brain#バージョンと互換性) にあります。
