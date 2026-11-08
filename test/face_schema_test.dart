@@ -8,8 +8,10 @@ import 'package:smabo/core/models/face_expression.dart';
 import 'package:smabo/core/models/face_schema.dart';
 
 void main() {
-  // test/face_schema.json is the shared contract: smabo-sim's tests compare
-  // its own /face/schema with it. Regenerate with UPDATE_FACE_SCHEMA=1.
+  // test/face_schema.json is generated from smabo-protocol/face_schema.json,
+  // the shared contract (smabo-sim's tests check its /face/schema against the
+  // same file). After changing the schema here, run this test with
+  // UPDATE_FACE_SCHEMA=1, copy the file to smabo-protocol and run its gen.py.
   test('schema matches test/face_schema.json', () {
     const enc = JsonEncoder.withIndent('  ');
     final file = File('test/face_schema.json');

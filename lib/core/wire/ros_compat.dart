@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:vector_math/vector_math_64.dart' as vm;
 
 import '../models/phone_config.dart' show appVersion;
+import 'protocol.g.dart';
 
 // rosbridge-compatibility layer.
 //
@@ -66,36 +67,20 @@ class RosTopics {
 /// smabo-brain and smabo-brain-ros both serve `ws://<brain>:9090/` and take
 /// the same rosbridge handshake: on connect the app advertises what it
 /// publishes and subscribes to what it reads, then publishes with the `/app`
-/// source prefix (the brain strips it). The tables mirror smabo-brain's
-/// brain/topics.py, whose tests check that they match.
+/// source prefix (the brain strips it). The tables are generated from
+/// smabo-protocol (protocol.g.dart).
 class RosProtocol {
-  static const sourcePrefix = '/app';
+  static const sourcePrefix = ProtocolTables.sourcePrefix;
 
-  /// smabo-brain's PROTOCOL_VERSION for these tables; sent on [RosTopics.hello]
+  /// smabo-brain's protocol number for these tables; sent on [RosTopics.hello]
   /// and compared with the brain's [RosTopics.brainInfo].
-  static const version = 1;
+  static const version = ProtocolTables.version;
 
   /// Canonical topics the app publishes (sent as `/app<topic>`), with types.
-  static const publish = <String, String>{
-    RosTopics.imu: 'sensor_msgs/msg/Imu',
-    RosTopics.gps: 'sensor_msgs/msg/NavSatFix',
-    RosTopics.speechAudio: 'audio_common_msgs/msg/AudioData',
-    '/webrtc/offer': 'std_msgs/msg/String',
-    '/webrtc/app_ice': 'std_msgs/msg/String',
-    // the REST settings API: where it is, and the whole tree after a change
-    RosTopics.phoneConfig: 'std_msgs/msg/String',
-    RosTopics.phoneConfigUrl: 'std_msgs/msg/String',
-    RosTopics.hello: 'std_msgs/msg/String',
-  };
+  static const publish = ProtocolTables.publish;
 
   /// Canonical topics the app reads, with types.
-  static const subscribe = <String, String>{
-    RosTopics.faceExpression: 'std_msgs/msg/String',
-    RosTopics.lookAt: 'geometry_msgs/msg/PoseStamped',
-    RosTopics.speechSay: 'std_msgs/msg/String',
-    '/webrtc/answer': 'std_msgs/msg/String',
-    RosTopics.brainInfo: 'std_msgs/msg/String',
-  };
+  static const subscribe = ProtocolTables.subscribe;
 
   /// The `/hello` message body.
   static Map<String, dynamic> helloMsg() => {
