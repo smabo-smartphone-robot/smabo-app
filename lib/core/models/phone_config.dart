@@ -11,7 +11,8 @@ import 'face_expression.dart';
 ///
 /// ```
 /// {
-///   "brain":   {"host": str, "port": int},                 read-only
+///   "brain":   {"host": str, "port": int, "paired": bool},  read-only
+///              (POST {"brain": {"invite": CODE}} pairs, see brain_pairing.dart)
 ///   "http":    {"port": int},                              read-only
 ///   "sensors": {"imu":    {"enabled": bool, "rate_hz": int},
 ///               "gps":    {"enabled": bool},

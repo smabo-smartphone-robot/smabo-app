@@ -11,6 +11,7 @@ import '../core/models/face_config.dart';
 import '../core/models/face_expression.dart';
 import '../core/models/face_schema.dart';
 import '../core/models/phone_config.dart';
+import '../core/wire/brain_pairing.dart';
 import '../core/wire/ros_compat.dart';
 import '../core/wire/ws_client.dart';
 import '../services/config_server.dart';
@@ -34,8 +35,17 @@ class AppState extends ChangeNotifier {
     webrtc = WebRtcService(_publishToBrain);
     speech = SpeechService();
     tts = TtsService();
-    configServer = ConfigServer(read: phoneConfig, write: applyPhoneConfig, face: _FaceRest(this));
+    configServer = ConfigServer(
+      read: phoneConfig,
+      write: applyPhoneConfig,
+      face: _FaceRest(this),
+      locked: () => pairing.locked,
+      relayAllowed: (key) => pairing.relayAllowed(key),
+    );
   }
+
+  /// Pairing with smabo-brain (token, relay-key hash); see brain_pairing.dart.
+  BrainPairing pairing = BrainPairing();
 
   late final ConnectionManager connections;
   late final SensorService sensors;
@@ -110,12 +120,15 @@ class AppState extends ChangeNotifier {
   final _connEventController = StreamController<String>.broadcast();
   Stream<String> get connectionEvents => _connEventController.stream;
   WsStatus _prevBrainStatus = WsStatus.disconnected;
+  String _shownRefusal = ''; // said once per reason, not on every retry
 
   final List<StreamSubscription> _subs = [];
 
   // ------------------------------------------------------------------ init
   Future<void> init() async {
     settings = await AppSettings.load();
+    pairing = await BrainPairing.load();
+    connections.brain.authenticator = pairing;
     await tts.init(settings.ttsLanguage);
 
     // Brain inbound: look_at (eye follow), speech/say (TTS), expression.
@@ -481,6 +494,7 @@ class AppState extends ChangeNotifier {
   void _onConnStatus(WsStatus s) {
     if (s != _prevBrainStatus) {
       if (s == WsStatus.connected) {
+        _shownRefusal = '';
         const msg = 'Brain connected';
         _addLog('🔌 $msg');
         if (!_connEventController.isClosed) _connEventController.add(msg);
@@ -489,6 +503,15 @@ class AppState extends ChangeNotifier {
         // Brain restarted/(re)connected: re-send the WebRTC offer so the brain
         // re-establishes the camera peer while the camera is already running.
         if (webrtc.isActive) webrtc.recreateOffer();
+      } else if (s == WsStatus.error &&
+          pairing.refused.isNotEmpty &&
+          pairing.refused != _shownRefusal) {
+        _shownRefusal = pairing.refused;
+        final msg = pairing.paired
+            ? 'Brain refused this phone (${pairing.refused})'
+            : 'Brain needs pairing: enter an invite code in Settings';
+        _addLog('🔒 $msg');
+        if (!_connEventController.isClosed) _connEventController.add(msg);
       } else if (_prevBrainStatus == WsStatus.connected &&
           (s == WsStatus.error || s == WsStatus.disconnected)) {
         _configUrl = null; // the network may change before the next connect

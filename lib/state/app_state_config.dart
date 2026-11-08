@@ -6,12 +6,35 @@ part of 'app_state.dart';
 ///   /app/phone/config_url  where the API is (on connect and every 5 s)
 ///   /app/phone/config      the whole tree (on connect and after every change)
 extension AppStateConfig on AppState {
-  Map<String, dynamic> phoneConfig() =>
-      phoneConfigToJson(settings, httpPort: configServer.boundPort ?? configServer.port);
+  Map<String, dynamic> phoneConfig() {
+    final c = phoneConfigToJson(settings, httpPort: configServer.boundPort ?? configServer.port);
+    (c['brain'] as Map<String, dynamic>).addAll(pairing.status());
+    return c;
+  }
+
+  /// Pair with the brain using an invite code from smabo-web (Settings, or
+  /// `{"brain": {"invite": CODE}}` on the REST API): reconnect and show it.
+  void pairWithBrain(String code) {
+    pairing.setInvite(code);
+    if (pairing.invite.isEmpty) return;
+    _addLog('🔒 Pairing with the brain…');
+    connections.brain.retryNow();
+    _notify();
+  }
+
+  /// Forget the brain's token (Settings → Brain → Unpair).
+  Future<void> unpairBrain() async {
+    await pairing.forget();
+    _addLog('🔒 Forgot the pairing with the brain');
+    connections.brain.retryNow();
+    _notify();
+  }
 
   /// Apply a partial settings tree (POST /config) through the same setters the
   /// settings screen uses. Returns the paths that were ignored.
   Future<List<String>> applyPhoneConfig(Map<String, dynamic> patch) async {
+    final invite = takeInvite(patch);
+    if (invite != null) pairWithBrain(invite);
     final p = parsePhoneConfigPatch(patch,
         expressionNames: [for (final e in settings.expressions) e.name]);
     _configBatch++;

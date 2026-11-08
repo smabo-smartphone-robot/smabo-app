@@ -26,8 +26,13 @@ abstract class FaceApi {
 
 /// The phone's REST settings API, like the ESP32's: `GET /config` returns the
 /// settings tree, `POST /config` applies a partial one and answers
-/// `{"ok": true, "ignored": [...]}`. CORS is open so smabo-web (served from
-/// anywhere on the LAN) can call it straight from the browser.
+/// `{"ok": true, "ignored": [...]}`.
+///
+/// Until the phone pairs with smabo-brain, CORS is open so smabo-web (served
+/// from anywhere on the LAN) can call it straight from the browser. Once paired
+/// ([locked]), only the brain may call it: each request must carry the relay
+/// key in `X-Smabo-Relay-Key` ([relayAllowed]; 401 otherwise) and no CORS
+/// headers are sent, so no web page can reach it from a browser.
 ///
 /// Face expressions, when [face] is given:
 ///
@@ -43,12 +48,27 @@ class ConfigServer {
   /// The largest preview side served, in pixels.
   static const previewMaxSide = 1024;
 
-  ConfigServer({required this.read, required this.write, this.face, this.port = phoneConfigPort});
+  ConfigServer({
+    required this.read,
+    required this.write,
+    this.face,
+    this.port = phoneConfigPort,
+    this.locked,
+    this.relayAllowed,
+  });
+
+  static const relayKeyHeader = 'X-Smabo-Relay-Key';
 
   final Map<String, dynamic> Function() read;
   final Future<List<String>> Function(Map<String, dynamic> patch) write;
   final FaceApi? face;
   final int port;
+
+  /// True once paired with the brain: no CORS, the relay key is required.
+  final bool Function()? locked;
+
+  /// Whether the request's relay key (the header, or null) may proceed.
+  final bool Function(String? key)? relayAllowed;
 
   HttpServer? _server;
 
@@ -74,13 +94,18 @@ class ConfigServer {
 
   Future<void> _handle(HttpRequest req) async {
     final res = req.response;
-    res.headers
-      ..set('Access-Control-Allow-Origin', '*')
-      ..set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
-      ..set('Access-Control-Allow-Headers', 'Content-Type')
-      ..set('Access-Control-Allow-Private-Network', 'true');
+    if (!(locked?.call() ?? false)) {
+      res.headers
+        ..set('Access-Control-Allow-Origin', '*')
+        ..set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+        ..set('Access-Control-Allow-Headers', 'Content-Type')
+        ..set('Access-Control-Allow-Private-Network', 'true');
+    }
     try {
-      if (req.method == 'OPTIONS') {
+      if (!(relayAllowed?.call(req.headers.value(relayKeyHeader)) ?? true)) {
+        _json(res, {'error': 'unauthorized', 'message': 'Paired: settings go through smabo-brain'},
+            status: HttpStatus.unauthorized);
+      } else if (req.method == 'OPTIONS') {
         res.statusCode = HttpStatus.noContent;
       } else if (req.uri.path == '/config' && req.method == 'GET') {
         _json(res, read());

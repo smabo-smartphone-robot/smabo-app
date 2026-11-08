@@ -78,7 +78,7 @@ ESP32 と同じく、設定は REST で読み書きできます。smabo-web の 
 
 ```json
 {
-  "brain":   {"host": "smabo-brain.local", "port": 9090},
+  "brain":   {"host": "smabo-brain.local", "port": 9090, "paired": true},
   "http":    {"port": 8081},
   "sensors": {"imu": {"enabled": false, "rate_hz": 20}, "gps": {"enabled": false},
               "camera": {"enabled": false, "front": true}},
@@ -110,6 +110,18 @@ ESP32 と同じく、設定は REST で読み書きできます。smabo-web の 
 | `GET /face/preview.png?id=<id>&w=<px>&h=<px>` | その表情をアプリの描画で PNG にしたもの（目は正面・開いた状態。辺は最大 1024px）。smabo-web のプレビュー用 |
 
 アプリの編集画面と同じく、左右共通（`per_eye: false`）のときは右目は左目のコピーになり、`per_eye` をオンにすると左目のコピーから始まります。スキーマを変えたら `UPDATE_FACE_SCHEMA=1 flutter test test/face_schema_test.dart` で `test/face_schema.json` を作り直します。
+
+### brain とのペアリング
+
+smabo-brain（ペアリング有効時）につなぐには、一度だけペアリングします。smabo-esp32・smabo-sim と同じ仕組みです（`lib/core/wire/brain_pairing.dart`）。
+
+1. smabo-web の **Devices → Add phone** で招待コード（`ABCD-EFGH`、5 分・1 回限り）を出す
+2. アプリの **設定 → Connections → Invite code** に入れて **Pair**（または、まだペアリングしていないスマホの REST に `POST /config {"brain": {"invite": "ABCD-EFGH"}}`）
+3. brain からトークンと relay key が届き、トークンと relay key の SHA-256 だけを保存（shared_preferences）。以後は接続のたびに最初のフレームでトークンを見せる
+
+ペアリング後の REST API（8081）は **brain の中継（`X-Smabo-Relay-Key` 付き）しか受け付けず**（それ以外は 401）、CORS ヘッダーも返しません。smabo-web の Phone 設定は brain の `/devices/app/...` 経由になります。smabo-web でこのスマホを外す（または brain をリセットする）と、次の接続で "unauthorized" が返り、アプリはペアリングを忘れて招待を受け付ける状態に戻ります。設定画面の **Unpair** でも忘れられます。
+
+`--no-auth` の brain や、返事をしない古い brain・smabo-brain-ros（2 秒待って返事がなければ）には、これまでどおりつながります。
 
 ---
 

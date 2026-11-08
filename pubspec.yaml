@@ -42,6 +42,9 @@ dependencies:
   # Persistent settings
   shared_preferences: ^2.3.0
 
+  # SHA-256 of the brain's relay key (pairing)
+  crypto: ^3.0.3
+
   # Voice
   speech_to_text: ^7.4.0
   flutter_tts: ^4.2.5
