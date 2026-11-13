@@ -327,10 +327,10 @@ class _FeatureChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          color: active ? Colors.cyanAccent.withOpacity(0.15) : Colors.white10,
+          color: active ? Colors.cyanAccent.withValues(alpha: 0.15) : Colors.white10,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: active ? Colors.cyanAccent.withOpacity(0.6) : Colors.white24,
+            color: active ? Colors.cyanAccent.withValues(alpha: 0.6) : Colors.white24,
           ),
         ),
         child: Row(
