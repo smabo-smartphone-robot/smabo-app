@@ -70,7 +70,7 @@ class _SensorChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: on ? Colors.cyan.withOpacity(0.25) : Colors.white10,
+          color: on ? Colors.cyan.withValues(alpha: 0.25) : Colors.white10,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: on ? Colors.cyanAccent : Colors.white24,

@@ -169,10 +169,10 @@ class SpeechService {
     try {
       await _stt.listen(
         onResult: _onWakeResult,
-        localeId: _localeId,
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 4),
         listenOptions: SpeechListenOptions(
+          localeId: _localeId,
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(seconds: 4),
           listenMode: ListenMode.dictation,
           partialResults: true,
           cancelOnError: false,
