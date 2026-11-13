@@ -46,12 +46,24 @@ void main() {
       expect(p.locked, isFalse);
     });
 
-    test('a --no-auth brain is accepted and the token kept', () async {
+    test('a brain without pairing is accepted and the token kept', () async {
       final p = BrainPairing(token: 't');
       expect(await p.handleReply({'op': 'auth', 'ok': true, 'auth': false, 'reason': 'no_auth'}),
           isTrue);
       expect(p.token, 't');
       expect(p.brainChecksTokens, isFalse);
+    });
+
+    test('a paired phone opens its REST while the brain does not check tokens', () async {
+      final p = BrainPairing(token: 't', relayKeySha256: BrainPairing.sha256Hex('k'));
+      expect(p.locked, isTrue);
+      expect(p.relayAllowed(null), isFalse);
+      await p.handleReply({'op': 'auth', 'ok': true, 'auth': false, 'reason': 'no_auth'});
+      expect(p.locked, isFalse);
+      expect(p.relayAllowed(null), isTrue);
+      await p.handleReply({'op': 'auth', 'ok': true, 'role': 'app', 'name': 'p', 'id': 'x'});
+      expect(p.locked, isTrue);
+      expect(p.relayAllowed('k'), isTrue);
     });
 
     test('other frames are not answers', () async {

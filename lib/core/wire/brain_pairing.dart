@@ -38,15 +38,17 @@ class BrainPairing implements WsAuthenticator {
   /// The last reason the brain gave for refusing us ('' when accepted).
   String refused = '';
 
-  /// False when the brain runs with `--no-auth` (or is an old one).
+  /// False when the brain runs without `--pairing` (the default) or is an old
+  /// one. Then smabo-web talks to this phone's REST directly, so it opens.
   bool brainChecksTokens = true;
 
   final Future<void> Function(BrainPairing)? onSave;
 
   bool get paired => token.isNotEmpty;
 
-  /// Paired with a relay key: REST only for the brain, no CORS.
-  bool get locked => relayKeySha256.isNotEmpty;
+  /// Paired with a relay key and the brain checks tokens: REST only for the
+  /// brain, no CORS.
+  bool get locked => relayKeySha256.isNotEmpty && brainChecksTokens;
 
   static Future<BrainPairing> load() async {
     final p = await SharedPreferences.getInstance();
@@ -134,7 +136,7 @@ class BrainPairing implements WsAuthenticator {
 
   /// A human-readable line for the settings screen.
   String describe() {
-    if (!brainChecksTokens) return 'The brain does not ask for pairing (--no-auth)';
+    if (!brainChecksTokens) return 'The brain does not ask for pairing';
     if (refused == 'unauthorized' && !paired) {
       return 'Not paired. Get an invite code in smabo-web → Devices → Add phone';
     }

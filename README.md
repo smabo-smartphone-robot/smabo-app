@@ -121,7 +121,7 @@ smabo-brain（ペアリング有効時）につなぐには、一度だけペア
 
 ペアリング後の REST API（8081）は **brain の中継（`X-Smabo-Relay-Key` 付き）しか受け付けず**（それ以外は 401）、CORS ヘッダーも返しません。smabo-web の Phone 設定は brain の `/devices/app/...` 経由になります。smabo-web でこのスマホを外す（または brain をリセットする）と、次の接続で "unauthorized" が返り、アプリはペアリングを忘れて招待を受け付ける状態に戻ります。設定画面の **Unpair** でも忘れられます。
 
-`--no-auth` の brain や、返事をしない古い brain・smabo-brain-ros（2 秒待って返事がなければ）には、これまでどおりつながります。
+ペアリングなし（既定。`--pairing` なし）の brain や、返事をしない古い brain・smabo-brain-ros（2 秒待って返事がなければ）には、これまでどおりつながります。
 
 ---
 
