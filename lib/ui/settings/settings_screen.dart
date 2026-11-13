@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/models/app_settings.dart';
 import '../../state/app_state.dart';
+import 'brain_pairing_tile.dart';
 import 'sensor_preview.dart';
 
 /// Settings: brain connection endpoint, sensor/voice options and face UI.
@@ -99,6 +100,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             label: const Text('Save & reconnect'),
             onPressed: _saveAppSettings,
           ),
+          BrainPairingTile(state: state),
 
           const SizedBox(height: 24),
           _section('Camera'),

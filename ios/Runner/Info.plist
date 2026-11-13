@@ -10,8 +10,6 @@
 	<string>音声コマンドを文字に変換するために音声認識を使用します。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>GPS位置情報をROSホストに送信するために使用します。</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>顔のカスタマイズに使う画像を選ぶために使用します。</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>smabo ブレインデバイスとの WebSocket 通信に、ローカルネットワークへのアクセスが必要です。</string>
 	<key>UIBackgroundModes</key>

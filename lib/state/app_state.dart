@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 
@@ -9,12 +9,20 @@ import '../core/models/app_mode.dart';
 import '../core/models/app_settings.dart';
 import '../core/models/face_config.dart';
 import '../core/models/face_expression.dart';
+import '../core/models/face_schema.dart';
+import '../core/models/phone_config.dart';
+import '../core/wire/brain_pairing.dart';
 import '../core/wire/ros_compat.dart';
 import '../core/wire/ws_client.dart';
+import '../services/config_server.dart';
 import '../services/sensor_service.dart';
 import '../services/webrtc_service.dart';
 import '../services/speech_service.dart';
 import '../services/tts_service.dart';
+import '../ui/face/face_render.dart';
+
+part 'app_state_config.dart';
+part 'app_state_expressions.dart';
 
 /// Central application state: wires the brain connection, services and UI.
 ///
@@ -27,13 +35,31 @@ class AppState extends ChangeNotifier {
     webrtc = WebRtcService(_publishToBrain);
     speech = SpeechService();
     tts = TtsService();
+    configServer = ConfigServer(
+      read: phoneConfig,
+      write: applyPhoneConfig,
+      face: _FaceRest(this),
+      locked: () => pairing.locked,
+      relayAllowed: (key) => pairing.relayAllowed(key),
+    );
   }
+
+  /// Pairing with smabo-brain (token, relay-key hash); see brain_pairing.dart.
+  BrainPairing pairing = BrainPairing();
 
   late final ConnectionManager connections;
   late final SensorService sensors;
   late final WebRtcService webrtc;
   late final SpeechService speech;
   late final TtsService tts;
+
+  /// The phone's REST settings API (`GET/POST /config` on port 8081).
+  late final ConfigServer configServer;
+
+  // Announcing it: see app_state_config.dart.
+  String? _configUrl;
+  Timer? _configUrlTimer;
+  int _configBatch = 0;
 
   AppSettings settings = AppSettings();
 
@@ -71,13 +97,11 @@ class AppState extends ChangeNotifier {
   /// duplicates when [AppSettings.ignoreRepeatedSpeech] is on.
   String _lastSpokenText = '';
 
-  /// Face appearance and the decoded images per element (null until loaded).
-  /// While an expression is being edited in the settings screen, [_previewConfig]
-  /// (live, unsaved) takes precedence so the preview and its images reflect the
-  /// in-progress edit; otherwise the active expression's config is shown.
+  /// Face appearance. While an expression is being edited in the settings
+  /// screen, [_previewConfig] (live, unsaved) takes precedence so the preview
+  /// reflects the in-progress edit; otherwise the active expression's config
+  /// is shown.
   FaceConfig get faceConfig => _previewConfig ?? settings.faceConfig;
-  final Map<String, ui.Image?> faceImages = {};
-  final Map<String, String> _loadedImagePaths = {};
 
   // Expression editing (settings screen): which expression is open and its
   // live, not-yet-committed config.
@@ -96,12 +120,15 @@ class AppState extends ChangeNotifier {
   final _connEventController = StreamController<String>.broadcast();
   Stream<String> get connectionEvents => _connEventController.stream;
   WsStatus _prevBrainStatus = WsStatus.disconnected;
+  String _shownRefusal = ''; // said once per reason, not on every retry
 
   final List<StreamSubscription> _subs = [];
 
   // ------------------------------------------------------------------ init
   Future<void> init() async {
     settings = await AppSettings.load();
+    pairing = await BrainPairing.load();
+    connections.brain.authenticator = pairing;
     await tts.init(settings.ttsLanguage);
 
     // Brain inbound: look_at (eye follow), speech/say (TTS), expression.
@@ -126,11 +153,11 @@ class AppState extends ChangeNotifier {
     }));
 
     connections.applySettings(settings);
+    await _startConfigServer();
     await _initVoice();
     _applyDefaultSensors();
     _refreshChrome();
     notifyListeners();
-    _syncFaceImages();
   }
 
   Future<void> _initVoice() async {
@@ -154,7 +181,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> toggleVoice(bool on) async {
     settings.voiceEnabled = on;
-    await settings.save();
+    await _saveSettings();
     if (on) {
       await _enableVoice();
     } else {
@@ -169,7 +196,7 @@ class AppState extends ChangeNotifier {
     final w = word.trim();
     if (w.isEmpty || w == settings.wakeWord) return;
     settings.wakeWord = w;
-    await settings.save();
+    await _saveSettings();
     speech.updateConfig(wakeWord: w);
     notifyListeners();
   }
@@ -178,7 +205,7 @@ class AppState extends ChangeNotifier {
   Future<void> setImuRate(int hz) async {
     if (hz <= 0 || hz == settings.imuRateHz) return;
     settings.imuRateHz = hz;
-    await settings.save();
+    await _saveSettings();
     if (sensors.imuOn) sensors.startImu(rateHz: hz);
     notifyListeners();
   }
@@ -187,7 +214,7 @@ class AppState extends ChangeNotifier {
   Future<void> setTtsLanguage(String lang) async {
     if (lang.isEmpty || lang == settings.ttsLanguage) return;
     settings.ttsLanguage = lang;
-    await settings.save();
+    await _saveSettings();
     await tts.setLanguage(lang);
     notifyListeners();
   }
@@ -196,7 +223,7 @@ class AppState extends ChangeNotifier {
   Future<void> setSttLocale(String locale) async {
     if (locale.isEmpty || locale == settings.sttLocaleId) return;
     settings.sttLocaleId = locale;
-    await settings.save();
+    await _saveSettings();
     speech.updateConfig(localeId: locale);
     notifyListeners();
   }
@@ -206,21 +233,21 @@ class AppState extends ChangeNotifier {
 
   Future<void> toggleTts(bool on) async {
     settings.ttsEnabled = on;
-    await settings.save();
+    await _saveSettings();
     if (!on) await tts.stop();
     notifyListeners();
   }
 
   Future<void> toggleSpeechBubble(bool on) async {
     settings.speechBubbleEnabled = on;
-    await settings.save();
+    await _saveSettings();
     if (!on) _clearBubble();
     notifyListeners();
   }
 
   Future<void> toggleIgnoreRepeatedSpeech(bool on) async {
     settings.ignoreRepeatedSpeech = on;
-    await settings.save();
+    await _saveSettings();
     notifyListeners();
   }
 
@@ -255,13 +282,25 @@ class AppState extends ChangeNotifier {
   }
 
   // --------------------------------------------------------------- routing
-  /// Source prefix prepended to every app→brain publish. The brain strips it
-  /// before re-broadcasting so subscribers see canonical ROS topic names.
-  static const _brainTopicPrefix = '/app';
-
+  /// Publish with the `/app` source prefix; the brain strips it and delivers
+  /// the canonical topic name.
   void _publishToBrain(String topic, Map<String, dynamic> msg) {
-    connections.brain.publish('$_brainTopicPrefix$topic', msg);
+    connections.brain.publish('${RosProtocol.sourcePrefix}$topic', msg);
   }
+
+  /// On every (re)connect: advertise what we publish, subscribe to what we read
+  /// (the same handshake for smabo-brain and smabo-brain-ros).
+  void _brainHandshake() {
+    final brain = connections.brain;
+    RosProtocol.publish.forEach(
+        (topic, type) => brain.advertise('${RosProtocol.sourcePrefix}$topic', type));
+    RosProtocol.subscribe.forEach(brain.subscribe);
+    _publishToBrain(RosTopics.hello, RosProtocol.helloMsg());
+  }
+
+  /// Set when the brain speaks another protocol number (shown in the status bar).
+  String? _protocolWarning;
+  String? get protocolWarning => _protocolWarning;
 
   void _onBrainMessage(WireMessage m) {
     switch (m.topic) {
@@ -286,17 +325,25 @@ class AppState extends ChangeNotifier {
         }
         break;
       case RosTopics.faceExpression:
-        final id = RosMessages.parseInt32(m.msg);
-        if (id != null) {
-          if (settings.expressions.any((e) => e.id == id)) {
-            setActiveExpression(id);
+        final name = RosMessages.parseString(m.msg);
+        if (name != null && name.trim().isNotEmpty) {
+          if (settings.expressionByName(name) != null) {
+            setActiveExpressionByName(name);
           } else {
-            _addLog('⚠️ Unknown expression id: $id (ignored)');
+            _addLog('⚠️ Unknown expression: "$name" (ignored)');
           }
         }
         break;
       case '/webrtc/answer':
         webrtc.handleAnswer(m.msg);
+        break;
+      case RosTopics.brainInfo:
+        final warning = RosProtocol.brainInfoWarning(m.msg);
+        if (warning != _protocolWarning) {
+          _protocolWarning = warning;
+          if (warning != null) _addLog('⚠️ $warning');
+          notifyListeners();
+        }
         break;
       default:
         break;
@@ -321,188 +368,8 @@ class AppState extends ChangeNotifier {
     speech.triggerRecognition();
   }
 
-  // ------------------------------------------------------- expressions
-  Future<void> setActiveExpression(int id) async {
-    final resolved = settings.expressionById(id).id;
-    if (settings.activeExpressionId == resolved && _previewConfig == null) {
-      return;
-    }
-    settings.activeExpressionId = resolved;
-    await settings.save();
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  Future<void> beginEditExpression(int id) async {
-    _editingExpressionId = id;
-    _previewConfig = settings.expressionById(id).config.copy();
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  Future<void> endEditExpression() async {
-    _editingExpressionId = null;
-    _previewConfig = null;
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  void previewFaceConfig(FaceConfig cfg) {
-    _previewConfig = cfg.clamped();
-    notifyListeners();
-  }
-
-  Future<void> commitEditExpression(FaceConfig cfg) async {
-    final clamped = cfg.clamped();
-    _previewConfig = clamped;
-    final id = _editingExpressionId;
-    if (id != null) {
-      settings.expressionById(id).config = clamped.copy();
-      await settings.save();
-    }
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  Future<int> addExpression() async {
-    final id = _nextExpressionId();
-    settings.expressions.add(FaceExpression(
-      id: id,
-      name: 'Expression $id',
-      config: FaceConfig(),
-    ));
-    await settings.save();
-    await beginEditExpression(id);
-    return id;
-  }
-
-  Future<int> duplicateExpression(int id) async {
-    final src = settings.expressionById(id);
-    final newId = _nextExpressionId();
-    settings.expressions.add(FaceExpression(
-      id: newId,
-      name: '${src.name} (copy)',
-      config: src.config.copy(),
-    ));
-    await settings.save();
-    await beginEditExpression(newId);
-    return newId;
-  }
-
-  Future<void> deleteExpression(int id) async {
-    if (settings.expressions.length <= 1) return;
-    settings.expressions.removeWhere((e) => e.id == id);
-    if (!settings.expressions.any((e) => e.id == settings.activeExpressionId)) {
-      settings.activeExpressionId = settings.expressions.first.id;
-    }
-    if (_editingExpressionId == id) {
-      _editingExpressionId = null;
-      _previewConfig = null;
-    }
-    await settings.save();
-    notifyListeners();
-    await _syncFaceImages();
-  }
-
-  Future<String?> changeExpressionId(int oldId, int newId) async {
-    if (newId == oldId) return null;
-    if (newId < 1) return 'ID must be a positive integer';
-    if (settings.expressions.any((e) => e.id == newId)) {
-      return 'ID $newId is already used';
-    }
-    final idx = settings.expressions.indexWhere((e) => e.id == oldId);
-    if (idx < 0) return 'Expression not found';
-    settings.expressions[idx].id = newId;
-    if (settings.activeExpressionId == oldId) {
-      settings.activeExpressionId = newId;
-    }
-    if (_editingExpressionId == oldId) _editingExpressionId = newId;
-    settings.expressions.sort((a, b) => a.id.compareTo(b.id));
-    await settings.save();
-    notifyListeners();
-    return null;
-  }
-
-  Future<void> renameExpression(int id, String name) async {
-    settings.expressionById(id).name = name;
-    await settings.save();
-    notifyListeners();
-  }
-
-  Future<void> restoreTemplates() async {
-    final present = settings.expressions.map((e) => e.id).toSet();
-    for (final t in FaceExpression.templates()) {
-      if (!present.contains(t.id)) settings.expressions.add(t);
-    }
-    await settings.save();
-    notifyListeners();
-  }
-
-  int _nextExpressionId() {
-    var maxId = 0;
-    for (final e in settings.expressions) {
-      if (e.id > maxId) maxId = e.id;
-    }
-    return maxId + 1;
-  }
-
-  Map<String, ui.Image?> eyeImages(String side) {
-    final out = <String, ui.Image?>{};
-    for (final slot in EyeAppearance.slots) {
-      out[slot] = faceImages['$side:$slot'];
-    }
-    return out;
-  }
-
-  Map<String, String?> _faceImagePaths() {
-    final fc = faceConfig;
-    final l = fc.displayLeft;
-    final r = fc.displayRight;
-    final out = <String, String?>{'background': fc.backgroundImage};
-    for (final slot in EyeAppearance.slots) {
-      out['L:$slot'] = l.imageForSlot(slot);
-      out['R:$slot'] = r.imageForSlot(slot);
-    }
-    return out;
-  }
-
-  Future<void> _syncFaceImages() async {
-    final paths = _faceImagePaths();
-    for (final key in faceImages.keys.toList()) {
-      if (!paths.containsKey(key)) {
-        faceImages.remove(key);
-        _loadedImagePaths.remove(key);
-      }
-    }
-    for (final entry in paths.entries) {
-      final key = entry.key;
-      final path = entry.value;
-      if (path == null) {
-        if (faceImages[key] != null || _loadedImagePaths.containsKey(key)) {
-          faceImages[key] = null;
-          _loadedImagePaths.remove(key);
-          notifyListeners();
-        }
-      } else if (_loadedImagePaths[key] != path) {
-        final img = await _loadImage(path);
-        faceImages[key] = img;
-        _loadedImagePaths[key] = path;
-        notifyListeners();
-      }
-    }
-  }
-
-  Future<ui.Image?> _loadImage(String path) async {
-    try {
-      final bytes = await File(path).readAsBytes();
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      return frame.image;
-    } catch (e) {
-      _addLog('⚠️ Could not load image: $path');
-      return null;
-    }
-  }
+  /// notifyListeners for the extension parts of this class (it is @protected).
+  void _notify() => notifyListeners();
 
   // ------------------------------------------------------------ chrome (UI)
   void pokeChrome() {
@@ -541,9 +408,6 @@ class AppState extends ChangeNotifier {
   // ----------------------------------------------------------------- modes
   void setEyeMode(EyeMode m) {
     _eyeMode = m;
-    if (m == EyeMode.follow) {
-      connections.brain.subscribe(RosTopics.lookAt, RosTypes.poseStamped);
-    }
     notifyListeners();
   }
 
@@ -555,7 +419,7 @@ class AppState extends ChangeNotifier {
       sensors.stopImu();
     }
     settings.imuEnabled = on;
-    settings.save();
+    _saveSettings();
     notifyListeners();
   }
 
@@ -568,14 +432,14 @@ class AppState extends ChangeNotifier {
       sensors.stopGps();
       settings.gpsEnabled = false;
     }
-    settings.save();
+    _saveSettings();
     notifyListeners();
   }
 
   Future<void> setCameraFront(bool front) async {
     if (settings.cameraFront == front) return;
     settings.cameraFront = front;
-    await settings.save();
+    await _saveSettings();
     final wasActive = webrtc.isActive;
     await webrtc.stop();
     if (wasActive) await webrtc.start(settings);
@@ -590,15 +454,32 @@ class AppState extends ChangeNotifier {
       await webrtc.stop();
       settings.cameraEnabled = false;
     }
-    settings.save();
+    _saveSettings();
     notifyListeners();
   }
 
   // ------------------------------------------------------------- settings
+  Future<void> setFaceAutoHide(bool on) async {
+    if (settings.faceAutoHide == on) return;
+    settings.faceAutoHide = on;
+    await _saveSettings();
+    _refreshChrome();
+    notifyListeners();
+  }
+
+  Future<void> setFaceAutoHideSeconds(int seconds) async {
+    final s = seconds.clamp(1, 3600);
+    if (settings.faceAutoHideSeconds == s) return;
+    settings.faceAutoHideSeconds = s;
+    await _saveSettings();
+    _refreshChrome();
+    notifyListeners();
+  }
+
   Future<void> updateSettings(AppSettings newSettings) async {
     final reconnect = newSettings.brainUrl != settings.brainUrl;
     settings = newSettings;
-    await settings.save();
+    await _saveSettings();
     await tts.setLanguage(settings.ttsLanguage);
     speech.updateConfig(
       wakeWord: settings.wakeWord,
@@ -613,15 +494,27 @@ class AppState extends ChangeNotifier {
   void _onConnStatus(WsStatus s) {
     if (s != _prevBrainStatus) {
       if (s == WsStatus.connected) {
+        _shownRefusal = '';
         const msg = 'Brain connected';
         _addLog('🔌 $msg');
         if (!_connEventController.isClosed) _connEventController.add(msg);
-        connections.brain.subscribe(RosTopics.faceExpression, RosTypes.int32);
+        _brainHandshake();
+        _announceConfig();
         // Brain restarted/(re)connected: re-send the WebRTC offer so the brain
         // re-establishes the camera peer while the camera is already running.
         if (webrtc.isActive) webrtc.recreateOffer();
+      } else if (s == WsStatus.error &&
+          pairing.refused.isNotEmpty &&
+          pairing.refused != _shownRefusal) {
+        _shownRefusal = pairing.refused;
+        final msg = pairing.paired
+            ? 'Brain refused this phone (${pairing.refused})'
+            : 'Brain needs pairing: enter an invite code in Settings';
+        _addLog('🔒 $msg');
+        if (!_connEventController.isClosed) _connEventController.add(msg);
       } else if (_prevBrainStatus == WsStatus.connected &&
           (s == WsStatus.error || s == WsStatus.disconnected)) {
+        _configUrl = null; // the network may change before the next connect
         const msg = 'Brain disconnected';
         _addLog('🔌 $msg');
         if (!_connEventController.isClosed) _connEventController.add(msg);
@@ -642,6 +535,8 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _chromeHideTimer?.cancel();
     _bubbleTimer?.cancel();
+    _configUrlTimer?.cancel();
+    configServer.stop();
     for (final s in _subs) {
       s.cancel();
     }

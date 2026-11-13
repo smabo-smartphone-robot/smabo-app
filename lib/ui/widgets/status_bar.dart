@@ -17,6 +17,18 @@ class StatusBar extends StatelessWidget {
       child: Row(
         children: [
           _Dot(label: 'Brain', status: state.connections.brain.status),
+          if (state.protocolWarning != null) ...[
+            const SizedBox(width: 8),
+            Tooltip(
+              message: state.protocolWarning!,
+              child: const Row(children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 16),
+                SizedBox(width: 2),
+                Text('Protocol mismatch',
+                    style: TextStyle(color: Colors.amber, fontSize: 12)),
+              ]),
+            ),
+          ],
           const Spacer(),
           _VoiceIndicator(voiceState: state.voiceState),
         ],

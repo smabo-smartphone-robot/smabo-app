@@ -1,6 +1,10 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:vector_math/vector_math_64.dart' as vm;
+
+import '../models/phone_config.dart' show appVersion;
+import 'protocol.g.dart';
 
 // rosbridge-compatibility layer.
 //
@@ -21,7 +25,7 @@ import 'package:vector_math/vector_math_64.dart' as vm;
 ///   - [speechAudio] is published (recorded utterance for smabo-brain to
 ///     transcribe; the text comes back on [speechRecognized], shown in smabo-web).
 ///   - [speechSay] is received (text to read aloud, std_msgs/String shape).
-///   - [faceExpression] is received (active expression id, std_msgs/Int32 shape).
+///   - [faceExpression] is received (expression name, std_msgs/String shape).
 ///   - [imu] / [gps] are published (sensors). The camera is streamed over
 ///     WebRTC (see services/webrtc_service.dart), not as a ROS topic here.
 class RosTopics {
@@ -35,23 +39,71 @@ class RosTopics {
   /// [speechRecognized].
   static const speechAudio = '/speech/audio';
 
-  /// Active facial-expression id, received from the brain device
-  /// (std_msgs/Int32 shape: `{data: <id>}`).
+  /// The facial expression to show, by name (ignoring case), received from
+  /// the brain device (std_msgs/String shape: `{data: "Angry"}`).
   static const faceExpression = '/expression';
 
   // --- brain: sensors ---
   static const imu = '/imu/data';
   static const gps = '/gps/fix';
+
+  // --- settings (REST /config on the phone, port 8081) ---
+  /// The phone's settings tree as JSON (std_msgs/String), after every change.
+  static const phoneConfig = '/phone/config';
+
+  /// `http://<phone ip>:8081`, the REST settings API (std_msgs/String, every 5 s).
+  static const phoneConfigUrl = '/phone/config_url';
+
+  // --- protocol check ---
+  /// Sent once per connect: `{"protocol", "client", "version"}` (std_msgs/String).
+  static const hello = '/hello';
+
+  /// The brain's `{"protocol", "brain", "version"}` (std_msgs/String).
+  static const brainInfo = '/brain/info';
 }
 
-/// ROS-compatible message type strings (used in the optional `subscribe` op).
-class RosTypes {
-  static const poseStamped = 'geometry_msgs/PoseStamped';
-  static const pose = 'geometry_msgs/Pose';
-  static const string = 'std_msgs/String';
-  static const int32 = 'std_msgs/Int32';
-  static const imu = 'sensor_msgs/Imu';
-  static const navSatFix = 'sensor_msgs/NavSatFix';
+/// What the app exchanges with the brain, and how it introduces itself.
+///
+/// smabo-brain and smabo-brain-ros both serve `ws://<brain>:9090/` and take
+/// the same rosbridge handshake: on connect the app advertises what it
+/// publishes and subscribes to what it reads, then publishes with the `/app`
+/// source prefix (the brain strips it). The tables are generated from
+/// smabo-protocol (protocol.g.dart).
+class RosProtocol {
+  static const sourcePrefix = ProtocolTables.sourcePrefix;
+
+  /// smabo-brain's protocol number for these tables; sent on [RosTopics.hello]
+  /// and compared with the brain's [RosTopics.brainInfo].
+  static const version = ProtocolTables.version;
+
+  /// Canonical topics the app publishes (sent as `/app<topic>`), with types.
+  static const publish = ProtocolTables.publish;
+
+  /// Canonical topics the app reads, with types.
+  static const subscribe = ProtocolTables.subscribe;
+
+  /// The `/hello` message body.
+  static Map<String, dynamic> helloMsg() => {
+        'data': jsonEncode(
+            {'protocol': version, 'client': 'smabo-app', 'version': appVersion}),
+      };
+
+  /// A warning when `/brain/info` names another protocol number, else null.
+  static String? brainInfoWarning(Map<String, dynamic> msg) {
+    final raw = msg['data'];
+    if (raw is! String) return null;
+    Object? info;
+    try {
+      info = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (info is! Map || info['protocol'] is! int) return null;
+    final protocol = info['protocol'] as int;
+    if (protocol == version) return null;
+    return '${info['brain'] ?? 'brain'} ${info['version'] ?? '?'} speaks protocol '
+        '$protocol; smabo-app $appVersion speaks $version. Update the older one.';
+  }
 }
 
 /// A ROS time `{sec, nanosec}` from the current wall clock.
@@ -75,24 +127,12 @@ Map<String, dynamic> rosHeader(String frameId) {
 class RosMessages {
   // ---------------------------------------------------------------------- //
   // std_msgs/String  ← /speech/say  (text to read aloud, in)
+  //                  ← /expression  (expression name, in)
   // ---------------------------------------------------------------------- //
-  /// Extract the text from a std_msgs/String (`/speech/say`).
+  /// Extract the text from a std_msgs/String (`/speech/say`, `/expression`).
   static String? parseString(Map<String, dynamic> msg) {
     final d = msg['data'];
     return d is String ? d : null;
-  }
-
-  // ---------------------------------------------------------------------- //
-  // std_msgs/Int32  ↔ /expression  (active expression id)
-  // ---------------------------------------------------------------------- //
-  static Map<String, dynamic> int32(int data) => {'data': data};
-
-  /// Extract an integer from a std_msgs/Int32 (`{data: <int>}`).
-  static int? parseInt32(Map<String, dynamic> msg) {
-    final d = msg['data'];
-    if (d is num) return d.toInt();
-    if (d is String) return int.tryParse(d);
-    return null;
   }
 
   // ---------------------------------------------------------------------- //

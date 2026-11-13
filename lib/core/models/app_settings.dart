@@ -59,11 +59,11 @@ class AppSettings {
   bool faceAutoHide;
   int faceAutoHideSeconds;
 
-  /// Saved facial expressions (each has a stable [FaceExpression.id]).
+  /// Saved facial expressions (unique names; see [FaceExpression]).
   List<FaceExpression> expressions;
 
-  /// The currently shown expression (by id). Switchable in settings and via the
-  /// `/expression` websocket topic.
+  /// The currently shown expression (by its internal id). Switchable in
+  /// settings and by name via the `/expression` topic.
   int activeExpressionId;
 
   /// The active expression's config, or the first available.
@@ -77,6 +77,15 @@ class AppSettings {
     return expressions.isNotEmpty
         ? expressions.first
         : FaceExpression(id: 1, name: 'Normal', config: FaceConfig());
+  }
+
+  /// Lookup by name (ignoring case and surrounding spaces), or null.
+  FaceExpression? expressionByName(String name) {
+    final k = expressionKey(name);
+    for (final e in expressions) {
+      if (expressionKey(e.name) == k) return e;
+    }
+    return null;
   }
 
   String get brainUrl => 'ws://$brainHost:$brainPort';
@@ -139,7 +148,7 @@ class AppSettings {
             .map((e) =>
                 FaceExpression.fromJson((e as Map).cast<String, dynamic>()))
             .toList();
-        if (list.isNotEmpty) return list;
+        if (list.isNotEmpty) return withUniqueNames(list);
       } catch (_) {}
     }
     final templates = FaceExpression.templates();

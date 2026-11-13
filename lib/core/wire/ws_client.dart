@@ -7,6 +7,15 @@ import 'package:web_socket_channel/status.dart' as ws_status;
 /// Connection lifecycle states for a single WebSocket endpoint.
 enum WsStatus { disconnected, connecting, connected, error }
 
+/// Says who we are as the first frame after the socket opens (smabo-brain's
+/// pairing; see brain_pairing.dart).
+abstract class WsAuthenticator {
+  Map<String, dynamic> firstFrame();
+
+  /// The peer's answer: true accepted, false refused, null not an answer.
+  Future<bool?> handleReply(Map<String, dynamic> frame);
+}
+
 /// A single inbound message: a topic and its JSON payload.
 class WireMessage {
   WireMessage(this.topic, this.msg);
@@ -25,11 +34,25 @@ class WireMessage {
 /// peer actually speaks ROS is irrelevant to this client.
 ///
 /// Auto-reconnects with a capped backoff while [isEnabled] is true.
+///
+/// With an [authenticator], the first frame says who we are and the status
+/// turns "connected" only once the peer accepts it. A peer that does not
+/// answer within [authReplyTimeout] (an old brain, smabo-brain-ros) is taken
+/// as one that does not check; a refusal waits [refusedRetry] before the
+/// next try (or until [retryNow]).
 class WsClient {
-  WsClient({required this.label});
+  WsClient({required this.label, this.authenticator});
 
   /// Human-readable name for this endpoint (e.g. "ESP32", "Brain").
   final String label;
+
+  WsAuthenticator? authenticator;
+
+  static const authReplyTimeout = Duration(seconds: 2);
+  static const refusedRetry = Duration(seconds: 15);
+  Timer? _authTimer;
+  bool _awaitingAuth = false;
+  bool _refused = false;
 
   WebSocketChannel? _channel;
   StreamSubscription? _sub;
@@ -78,6 +101,8 @@ class WsClient {
   /// Stop the connection and disable auto-reconnect.
   Future<void> disconnect() async {
     _enabled = false;
+    _awaitingAuth = false;
+    _authTimer?.cancel();
     _reconnectTimer?.cancel();
     await _sub?.cancel();
     _sub = null;
@@ -105,8 +130,14 @@ class WsClient {
       // built on it — are reliable and don't flap when the server is down.
       channel.ready.then((_) {
         if (!_enabled || _channel != channel) return;
-        _setStatus(WsStatus.connected);
-        _backoffMs = _minBackoffMs;
+        final auth = authenticator;
+        if (auth == null) return _opened();
+        _awaitingAuth = true;
+        _send(auth.firstFrame());
+        _authTimer?.cancel();
+        _authTimer = Timer(authReplyTimeout, () {
+          if (_awaitingAuth && _channel == channel) _opened();
+        });
       }).catchError((_) {
         if (_channel == channel) _scheduleReconnect();
       });
@@ -115,17 +146,65 @@ class WsClient {
     }
   }
 
+  void _opened() {
+    _awaitingAuth = false;
+    _authTimer?.cancel();
+    _setStatus(WsStatus.connected);
+    _backoffMs = _minBackoffMs;
+  }
+
+  /// Reconnect at once (e.g. after an invite code was entered).
+  void retryNow() {
+    if (!_enabled) return;
+    _refused = false;
+    _reconnectTimer?.cancel();
+    _sub?.cancel();
+    _sub = null;
+    try {
+      _channel?.sink.close(ws_status.normalClosure);
+    } catch (_) {}
+    _channel = null;
+    _backoffMs = _minBackoffMs;
+    _open();
+  }
+
   void _scheduleReconnect() {
+    _awaitingAuth = false;
+    _authTimer?.cancel();
     _setStatus(_enabled ? WsStatus.error : WsStatus.disconnected);
     _sub?.cancel();
     _sub = null;
+    final old = _channel;
     _channel = null;
+    if (_refused) {
+      try {
+        old?.sink.close(ws_status.normalClosure);
+      } catch (_) {}
+    }
     if (!_enabled) return;
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(Duration(milliseconds: _backoffMs), () {
+    final delay = _refused ? refusedRetry : Duration(milliseconds: _backoffMs);
+    _refused = false;
+    _reconnectTimer = Timer(delay, () {
       if (_enabled) _open();
     });
     _backoffMs = (_backoffMs * 2).clamp(_minBackoffMs, _maxBackoffMs);
+  }
+
+  void _onAuthReply(Map<String, dynamic> frame) {
+    // Decide now: the peer closes the socket right after a refusal.
+    final accepted =
+        frame['ok'] == true || frame['auth'] == false || frame['reason'] == 'no_auth';
+    _awaitingAuth = false;
+    _authTimer?.cancel();
+    final channel = _channel;
+    authenticator!.handleReply(frame).then((_) {
+      if (accepted && channel != null && _channel == channel) _opened();
+    });
+    if (!accepted) {
+      _refused = true;
+      _scheduleReconnect();
+    }
   }
 
   void _onData(dynamic data) {
@@ -137,6 +216,10 @@ class WsClient {
       return;
     }
     final op = frame['op'];
+    if (_awaitingAuth && (op == 'auth' || op == 'pair')) {
+      _onAuthReply(frame);
+      return;
+    }
     if (op == 'publish') {
       final topic = frame['topic'] as String?;
       final msg = frame['msg'];
@@ -164,8 +247,12 @@ class WsClient {
   /// Send a raw op frame (set_mode, set_config, get_config, subscribe…).
   void sendOp(Map<String, dynamic> frame) => _send(frame);
 
-  /// Announce interest in a topic (rosbridge `subscribe`); harmless if the peer
-  /// ignores it.
+  /// Announce a topic this client publishes (rosbridge `advertise`).
+  void advertise(String topic, String type) {
+    _send({'op': 'advertise', 'topic': topic, 'type': type});
+  }
+
+  /// Ask to receive a topic (rosbridge `subscribe`).
   void subscribe(String topic, String type) {
     _send({'op': 'subscribe', 'topic': topic, 'type': type});
   }
@@ -188,6 +275,7 @@ class WsClient {
 
   void dispose() {
     _reconnectTimer?.cancel();
+    _authTimer?.cancel();
     _sub?.cancel();
     _channel?.sink.close();
     _statusController.close();

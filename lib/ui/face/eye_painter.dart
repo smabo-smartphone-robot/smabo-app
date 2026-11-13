@@ -1,13 +1,12 @@
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import '../../core/models/face_config.dart';
 
 /// Draws a pair of robot eyes, each from its own [EyeAppearance] so the two eyes
-/// can differ entirely (shape, colours, sizes, images). The only shared element
-/// is the screen [backgroundColor]/[backgroundImage], which is also what the
+/// can differ entirely (shape, colours, sizes). The only shared element
+/// is the screen [backgroundColor], which is also what the
 /// eyelids (blink + [EyeAppearance.lidTop]/[lidBottom]) blend into.
 ///
 /// [EyeShape.round] draws the sclera/iris/pupil/highlight; the other shapes draw
@@ -24,9 +23,6 @@ class EyePainter extends CustomPainter {
     required this.rightEye,
     this.perEye = false,
     this.irisOverride,
-    this.backgroundImage,
-    this.leftImages = const {},
-    this.rightImages = const {},
   });
 
   final double gazeX;
@@ -39,12 +35,6 @@ class EyePainter extends CustomPainter {
   final bool perEye;
   final Color? irisOverride;
 
-  final ui.Image? backgroundImage;
-  // Decoded element images per eye, keyed by slot ('sclera'/'iris'/'pupil'/
-  // 'highlight'); missing/absent entries fall back to the solid colour.
-  final Map<String, ui.Image?> leftImages;
-  final Map<String, ui.Image?> rightImages;
-
   @override
   void paint(Canvas canvas, Size size) {
     _paintBackground(canvas, size);
@@ -56,32 +46,23 @@ class EyePainter extends CustomPainter {
     final rightRotation = perEye ? rightEye.rotation : -leftEye.rotation;
     final rightShapeRotation =
         perEye ? rightEye.shapeRotation : -leftEye.shapeRotation;
-    _drawEye(canvas, size, Offset(size.width * 0.25, cy), leftEye, leftImages,
+    _drawEye(canvas, size, Offset(size.width * 0.25, cy), leftEye,
         isLeft: true,
         lidRotation: leftEye.rotation,
         shapeRotation: leftEye.shapeRotation);
-    _drawEye(canvas, size, Offset(size.width * 0.75, cy), rightEye, rightImages,
+    _drawEye(canvas, size, Offset(size.width * 0.75, cy), rightEye,
         isLeft: false,
         lidRotation: rightRotation,
         shapeRotation: rightShapeRotation);
   }
 
-  /// Fill the whole canvas with the background colour, then the background
-  /// image on top (used both for the screen and to "close" the eyelid).
+  /// Fill the whole canvas with the background colour (used both for the
+  /// screen and to "close" the eyelid).
   void _paintBackground(Canvas canvas, Size size) {
     canvas.drawRect(Offset.zero & size, Paint()..color = backgroundColor);
-    if (backgroundImage != null) {
-      paintImage(
-        canvas: canvas,
-        rect: Offset.zero & size,
-        image: backgroundImage!,
-        fit: BoxFit.cover,
-      );
-    }
   }
 
   void _drawEye(Canvas canvas, Size size, Offset center, EyeAppearance eye,
-      Map<String, ui.Image?> images,
       {required bool isLeft,
       required double lidRotation,
       required double shapeRotation}) {
@@ -92,12 +73,8 @@ class EyePainter extends CustomPainter {
     final lineColor = irisOverride ?? eye.irisColor;
 
     canvas.save();
-    // Clip every shape to the eye circle except a free-form custom image, which
-    // is shown in full (e.g. a transparent PNG of any silhouette).
-    if (eye.shape != EyeShape.image) {
-      canvas.clipPath(
-          Path()..addOval(Rect.fromCircle(center: center, radius: scleraR)));
-    }
+    canvas.clipPath(
+        Path()..addOval(Rect.fromCircle(center: center, radius: scleraR)));
 
     if (t > 0.04) {
       canvas.save();
@@ -108,7 +85,7 @@ class EyePainter extends CustomPainter {
       }
       switch (eye.shape) {
         case EyeShape.round:
-          _drawRound(canvas, center, scleraR, eye, images, lineColor);
+          _drawRound(canvas, center, scleraR, eye, lineColor);
           break;
         case EyeShape.arc:
           _drawArc(canvas, center, scleraR, lineColor);
@@ -121,9 +98,6 @@ class EyePainter extends CustomPainter {
           break;
         case EyeShape.squeeze:
           _drawSqueeze(canvas, center, scleraR, lineColor, isLeft);
-          break;
-        case EyeShape.image:
-          _drawImage(canvas, center, scleraR, images['iris']);
           break;
       }
       canvas.restore();
@@ -144,8 +118,8 @@ class EyePainter extends CustomPainter {
 
   /// Normal eyeball: sclera + iris + pupil + highlight, offset by the gaze.
   void _drawRound(Canvas canvas, Offset center, double scleraR,
-      EyeAppearance eye, Map<String, ui.Image?> images, Color irisColor) {
-    _fill(canvas, center, scleraR, eye.scleraColor, images['sclera']);
+      EyeAppearance eye, Color irisColor) {
+    canvas.drawCircle(center, scleraR, Paint()..color = eye.scleraColor);
 
     final irisR = scleraR * eye.irisFrac;
     final pupilR = scleraR * eye.pupilFrac;
@@ -155,14 +129,14 @@ class EyePainter extends CustomPainter {
     final maxOff = math.max(0.0, scleraR - irisR);
     final c = center.translate(gazeX * maxOff, gazeY * maxOff);
 
-    _fill(canvas, c, irisR, irisColor, images['iris']);
-    _fill(canvas, c, pupilR, eye.pupilColor, images['pupil']);
+    canvas.drawCircle(c, irisR, Paint()..color = irisColor);
+    if (pupilR > 0) canvas.drawCircle(c, pupilR, Paint()..color = eye.pupilColor);
 
     if (eye.highlightVisible) {
       final hR = irisR * eye.highlightFrac;
       final off = math.max(0.0, irisR - hR); // keep highlight inside iris
       final hc = c.translate(eye.highlightX * off, eye.highlightY * off);
-      _fill(canvas, hc, hR, eye.highlightColor, images['highlight']);
+      canvas.drawCircle(hc, hR, Paint()..color = eye.highlightColor);
     }
   }
 
@@ -256,30 +230,6 @@ class EyePainter extends CustomPainter {
     );
   }
 
-  /// A user-picked image filling the eye (BoxFit.contain in a square the size of
-  /// the eye). Until an image is chosen, a faint placeholder outline is shown.
-  void _drawImage(Canvas canvas, Offset center, double scleraR, ui.Image? img) {
-    if (img == null) {
-      final rect = Rect.fromCenter(
-          center: center, width: scleraR * 1.6, height: scleraR * 1.6);
-      canvas.drawRRect(
-        RRect.fromRectXY(rect, scleraR * 0.15, scleraR * 0.15),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = scleraR * 0.05
-          ..color = const Color(0x55FFFFFF),
-      );
-      return;
-    }
-    paintImage(
-      canvas: canvas,
-      rect: Rect.fromCenter(
-          center: center, width: scleraR * 2, height: scleraR * 2),
-      image: img,
-      fit: BoxFit.contain,
-    );
-  }
-
   void _drawTopLid(Canvas canvas, Size size, Offset center, double scleraR,
       double coverFrac, double rotationDeg) {
     if (coverFrac <= 0) return;
@@ -326,20 +276,6 @@ class EyePainter extends CustomPainter {
     canvas.restore();
   }
 
-  /// Fill a circle with a colour, or cover it with an image if given.
-  void _fill(Canvas canvas, Offset center, double r, Color color, ui.Image? img) {
-    if (r <= 0) return;
-    final rect = Rect.fromCircle(center: center, radius: r);
-    if (img == null) {
-      canvas.drawCircle(center, r, Paint()..color = color);
-    } else {
-      canvas.save();
-      canvas.clipPath(Path()..addOval(rect));
-      paintImage(canvas: canvas, rect: rect, image: img, fit: BoxFit.cover);
-      canvas.restore();
-    }
-  }
-
   @override
   bool shouldRepaint(covariant EyePainter o) {
     return o.gazeX != gazeX ||
@@ -349,9 +285,6 @@ class EyePainter extends CustomPainter {
         o.irisOverride != irisOverride ||
         o.perEye != perEye ||
         !o.leftEye.sameAs(leftEye) ||
-        !o.rightEye.sameAs(rightEye) ||
-        o.backgroundImage != backgroundImage ||
-        o.leftImages != leftImages ||
-        o.rightImages != rightImages;
+        !o.rightEye.sameAs(rightEye);
   }
 }
