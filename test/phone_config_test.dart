@@ -17,6 +17,13 @@ void main() {
     expect(j['app']['schema'], 1);
   });
 
+  test('the brain section takes the pairing status (phoneConfig() adds it)', () {
+    final j = phoneConfigToJson(AppSettings());
+    // a Map<String, Object> literal would throw here at run time
+    (j['brain'] as Map<String, dynamic>).addAll(<String, dynamic>{'paired': true});
+    expect(j['brain']['paired'], isTrue);
+  });
+
   test('appVersion matches pubspec.yaml', () {
     final line = File('pubspec.yaml').readAsLinesSync().firstWhere((l) => l.startsWith('version:'));
     expect(line.split(':').last.trim(), appVersion);

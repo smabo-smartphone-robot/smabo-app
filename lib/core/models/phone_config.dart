@@ -33,7 +33,7 @@ const phoneConfigPort = 8081;
 const appVersion = '0.2.0+5';
 
 Map<String, dynamic> phoneConfigToJson(AppSettings s, {int httpPort = phoneConfigPort}) => {
-      'brain': {'host': s.brainHost, 'port': s.brainPort},
+      'brain': <String, dynamic>{'host': s.brainHost, 'port': s.brainPort},
       'http': {'port': httpPort},
       'sensors': {
         'imu': {'enabled': s.imuEnabled, 'rate_hz': s.imuRateHz},
