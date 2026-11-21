@@ -1,5 +1,10 @@
 # smabo-app
 
+> **smabo（スマボ）** は、手のひらサイズのスマホロボット（スマートフォンロボット）です。手持ちのスマホが顔とセンサーになり、工具なしでブロックのように組み立てられます。
+> このリポジトリは smabo のスマホアプリ（Flutter）です。使い方は [製作ガイド](https://smabo-smartphone-robot.github.io/guides/smabo-app/)、ほかのリポジトリは [smabo-smartphone-robot](https://github.com/smabo-smartphone-robot) を見てください。
+>
+> *smabo is a palm-sized smartphone robot: your phone becomes its face and sensors, and it snaps together without tools. This repository is the smartphone app (Flutter). Guides: [smabo-smartphone-robot.github.io](https://smabo-smartphone-robot.github.io/)*
+
 ESP32ロボット用スマートフォンアプリ（Flutter製）。
 
 スマートフォンがロボットの「顔」になりつつ、センサ（IMU・GPS・カメラ）の送信と音声インタフェースを担います。
